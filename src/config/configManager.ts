@@ -86,7 +86,8 @@ export class ConfigManager {
    */
   public load(): void {
     if (!fs.existsSync(CONFIG_PATH)) {
-      this.config = { ...DEFAULT_CONFIG };
+      this.config = { ...DEFAULT_CONFIG, playitSettings: {} };
+      this.migrateLegacyConfig();
       this.save();
       return;
     }
@@ -130,6 +131,10 @@ export class ConfigManager {
         externalBackups: parsed.externalBackups || [],
       };
 
+      // Recover an already-claimed playit secret from the pre-2.0 config
+      // location before persisting (no-op once a secret is present here).
+      this.migrateLegacyConfig();
+
       // Persist the migrated shape so the legacy keys are cleaned up on disk.
       this.save();
     } catch (error) {
@@ -137,6 +142,40 @@ export class ConfigManager {
       console.warn('⚠️ Config file is corrupted. Rebuilding default config.json...');
       this.config = { ...DEFAULT_CONFIG };
       this.save();
+    }
+  }
+
+  /**
+   * Recovers settings written by versions <2.0, which stored config.json next
+   * to the app (`APP_ROOT/config.json`) instead of in `~/.mcpanel`. Without
+   * this, an already-claimed playit agent secret is invisible to the new
+   * location, so the agent gets re-claimed in the browser on every launch.
+   *
+   * Only runs when the current config has no playit secret, and never
+   * overwrites values already present in the new location.
+   */
+  private migrateLegacyConfig(): void {
+    const legacyPath = path.join(APP_ROOT, 'config.json');
+    if (legacyPath === CONFIG_PATH) return;           // same file — nothing to migrate
+    if (this.config.playitSettings.secret) return;    // already linked
+    if (!fs.existsSync(legacyPath)) return;
+
+    try {
+      const legacy = JSON.parse(fs.readFileSync(legacyPath, 'utf-8'));
+      if (legacy?.playitSettings?.secret) {
+        // Bring the secret + last-known tunnel forward so the existing agent
+        // and tunnel are reused instead of re-claimed/recreated.
+        this.config.playitSettings = {
+          ...legacy.playitSettings,
+          ...this.config.playitSettings,
+        };
+      }
+      // Adopt the legacy server only if none is synced in the new location.
+      if (!this.config.server && legacy.server && typeof legacy.server === 'object') {
+        this.config.server = legacy.server;
+      }
+    } catch {
+      // Unreadable/corrupt legacy config — ignore and continue with defaults.
     }
   }
 
