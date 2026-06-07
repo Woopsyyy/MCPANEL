@@ -1,6 +1,6 @@
 {
   "name": "@woopsy/mcpanel",
-  "version": "4.0.2",
+  "version": "5.0.0",
   "description": "MCPANEL — a terminal-based, single-server Minecraft server manager with an Arch/neofetch-style UI, live logs, backups, plugins and Playit.gg tunnels.",
   "main": "dist/index.js",
   "bin": {
