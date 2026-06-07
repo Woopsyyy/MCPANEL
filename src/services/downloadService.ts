@@ -1,10 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
-import { APP_ROOT } from '../config/configManager';
+import { APP_DATA_DIR } from '../config/configManager';
 import { logger } from '../utils/logger';
 
-const DOWNLOADS_DIR = path.join(APP_ROOT, 'downloads');
+const DOWNLOADS_DIR = path.join(APP_DATA_DIR, 'downloads');
 
 /**
  * Downloads a file from a URL with redirection support and reports progress.

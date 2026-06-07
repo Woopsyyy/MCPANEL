@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as https from 'https';
 import * as crypto from 'crypto';
 import { spawn, ChildProcess, execFile } from 'child_process';
-import { ConfigManager, APP_ROOT } from '../config/configManager';
+import { ConfigManager, APP_DATA_DIR } from '../config/configManager';
 import { detectOS } from '../utils/helpers';
 import { downloadFile } from '../services/downloadService';
 import { logger } from '../utils/logger';
@@ -65,7 +65,7 @@ export class PlayitManager {
   public getExecutablePath(): string {
     const osType = detectOS();
     const binName = osType === 'Windows' ? 'playit.exe' : 'playit';
-    return path.join(APP_ROOT, 'playit', binName);
+    return path.join(APP_DATA_DIR, 'playit', binName);
   }
 
   /** Path to the control cli (used for the one-time claim flow). */
@@ -73,18 +73,18 @@ export class PlayitManager {
     const osType = detectOS();
     // v1.0.8 only ships a separate cli for Linux; on Windows the main exe is used.
     if (osType === 'Windows') return this.getExecutablePath();
-    return path.join(APP_ROOT, 'playit', 'playit-cli');
+    return path.join(APP_DATA_DIR, 'playit', 'playit-cli');
   }
 
   /** IPC socket / named pipe the daemon binds to (its default location may not exist). */
   private getSocketPath(): string {
     const osType = detectOS();
     if (osType === 'Windows') return '\\\\.\\pipe\\mcpanel-playit';
-    return path.join(APP_ROOT, 'playit', 'agent.sock');
+    return path.join(APP_DATA_DIR, 'playit', 'agent.sock');
   }
 
   private getVersionSentinel(): string {
-    return path.join(APP_ROOT, 'playit', '.version');
+    return path.join(APP_DATA_DIR, 'playit', '.version');
   }
 
   private downloadUrls(): { agent: string; cli: string | null } {

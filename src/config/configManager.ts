@@ -33,12 +33,16 @@ export interface AppConfig {
   externalBackups: string[];
 }
 
+import * as os from 'os';
+
 // Dynamically resolve application root folder
 export const APP_ROOT = fs.existsSync(path.join(__dirname, '..', '..', 'package.json'))
   ? path.resolve(__dirname, '..', '..')
   : path.resolve(__dirname, '..');
 
-const CONFIG_PATH = path.join(APP_ROOT, 'config.json');
+export const APP_DATA_DIR = path.join(os.homedir(), '.mcpanel');
+
+const CONFIG_PATH = path.join(APP_DATA_DIR, 'config.json');
 
 const DEFAULT_CONFIG: AppConfig = {
   defaultJavaPath: 'java',
@@ -63,9 +67,12 @@ export class ConfigManager {
    * Initializes folders and configuration file
    */
   public initialize(): void {
+    if (!fs.existsSync(APP_DATA_DIR)) {
+      fs.mkdirSync(APP_DATA_DIR, { recursive: true });
+    }
     const requiredDirs = ['backups', 'downloads', 'logs', 'playit'];
     for (const dir of requiredDirs) {
-      const dirPath = path.join(APP_ROOT, dir);
+      const dirPath = path.join(APP_DATA_DIR, dir);
       if (!fs.existsSync(dirPath)) {
         fs.mkdirSync(dirPath, { recursive: true });
       }

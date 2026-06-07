@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import AdmZip from 'adm-zip';
-import { ConfigManager, APP_ROOT } from '../config/configManager';
+import { ConfigManager, APP_DATA_DIR } from '../config/configManager';
 import { logger } from '../utils/logger';
 
 export interface BackupMetadata {
@@ -36,7 +36,7 @@ export class BackupManager {
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupFileName = `${server.name}_backup_${timestamp}.zip`;
-    const backupDestDir = path.join(APP_ROOT, 'backups');
+    const backupDestDir = path.join(APP_DATA_DIR, 'backups');
     
     if (!fs.existsSync(backupDestDir)) {
       fs.mkdirSync(backupDestDir, { recursive: true });
@@ -71,7 +71,7 @@ export class BackupManager {
   public listBackups(): BackupMetadata[] {
     const backups: BackupMetadata[] = [];
     const scanDirs = [
-      path.join(APP_ROOT, 'backups'),
+      path.join(APP_DATA_DIR, 'backups'),
       ...this.configManager.getConfig().externalBackups
     ];
 

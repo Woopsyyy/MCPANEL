@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { APP_ROOT } from '../config/configManager';
+import { APP_DATA_DIR } from '../config/configManager';
 
-const LOGS_DIR = path.join(APP_ROOT, 'logs');
+const LOGS_DIR = path.join(APP_DATA_DIR, 'logs');
 
 function ensureLogsDirExists() {
   if (!fs.existsSync(LOGS_DIR)) {

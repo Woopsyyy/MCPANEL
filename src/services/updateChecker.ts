@@ -1,7 +1,7 @@
 import * as https from 'https';
 import * as fs from 'fs';
 import * as path from 'path';
-import { APP_ROOT } from '../config/configManager';
+import { APP_ROOT, APP_DATA_DIR } from '../config/configManager';
 
 /**
  * Lightweight "is there a newer version on npm?" checker.
@@ -13,7 +13,7 @@ import { APP_ROOT } from '../config/configManager';
  * - Fully fail-silent: no network / offline / parse error => returns null.
  */
 
-const CACHE_FILE = path.join(APP_ROOT, 'logs', '.update-check.json');
+const CACHE_FILE = path.join(APP_DATA_DIR, 'logs', '.update-check.json');
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // re-check at most every 6h
 const FETCH_TIMEOUT_MS = 2500;
 

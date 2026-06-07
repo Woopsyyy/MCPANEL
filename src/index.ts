@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
 import figlet from 'figlet';
-import { ConfigManager, APP_ROOT } from './config/configManager';
+import { ConfigManager, APP_ROOT, APP_DATA_DIR } from './config/configManager';
 import { ProcessManager } from './services/processManager';
 import { ServerManager } from './managers/serverManager';
 import { BackupManager } from './managers/backupManager';
@@ -35,7 +35,7 @@ const router = new CommandRouter(
   playitManager
 );
 
-const HISTORY_PATH = path.join(APP_ROOT, 'logs', '.history');
+const HISTORY_PATH = path.join(APP_DATA_DIR, 'logs', '.history');
 
 // State machine states
 type ShellState =
