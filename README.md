@@ -49,6 +49,27 @@ mcpanel>
 
 MCPANEL installs as a global npm command. **However you install it, you run it the same way: type `mcpanel`.**
 
+### 🪟 Windows — one-click (no WSL, no commands)
+
+The easiest path for a fresh Windows PC. This installs Node, Java 25, and MCPANEL for you, then launches it.
+
+1. Download **`mcpanel-setup.bat`** and **`mcpanel-setup.ps1`** from
+   [`scripts/win`](https://github.com/Woopsyyy/MCPANEL/tree/main/scripts/win) (keep them in the same folder).
+2. Double-click **`mcpanel-setup.bat`**. Approve any Windows install prompts.
+3. When it finishes, MCPANEL opens — and there's now an **MCPANEL** shortcut on your Desktop and Start menu.
+
+Prefer PowerShell? Paste this one line instead:
+
+```powershell
+irm https://raw.githubusercontent.com/Woopsyyy/MCPANEL/main/scripts/win/mcpanel-setup.ps1 | iex
+```
+
+> Requires Windows 10 (1809+) or Windows 11 for `winget`. On older Windows, install [Node LTS](https://nodejs.org) and [Java 25](https://adoptium.net/temurin/releases/?version=25) manually, then run `npm install -g @woopsy/mcpanel`.
+
+If Java is missing later, MCPANEL will offer to install it the first time you run `start`.
+
+---
+
 ### 🐧 WSL / Linux / macOS (bash/zsh)
 
 ```bash

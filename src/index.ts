@@ -12,7 +12,7 @@ import { BackupManager } from './managers/backupManager';
 import { PlayitManager } from './managers/playitManager';
 import { CommandRouter } from './commands/commandRouter';
 import * as colors from './utils/colors';
-import { detectOS, checkJava } from './utils/helpers';
+import { detectOS, checkJava, findInstalledJavas, installTemurin25 } from './utils/helpers';
 import { checkForUpdate } from './services/updateChecker';
 import { logger } from './utils/logger';
 import { TrayManager } from './managers/trayManager';
@@ -46,7 +46,8 @@ type ShellState =
   | 'PROPERTIES_INPUT'
   | 'CONSOLE'
   | 'LOG_VIEW'
-  | 'TUNNEL_LOG_VIEW';
+  | 'TUNNEL_LOG_VIEW'
+  | 'CONFIRM_JAVA_INSTALL';
 
 let currentState: ShellState = 'COMMAND';
 
@@ -310,6 +311,17 @@ function exitTunnelLogView() {
 }
 
 /**
+ * True only on native Windows when no usable Java is found anywhere — the
+ * trigger for the in-app "install Java?" guard before starting a server.
+ */
+function needsJavaPrompt(): boolean {
+  if (process.platform !== 'win32') return false;
+  const cfg = configManager.getConfig();
+  if (checkJava(cfg.defaultJavaPath).installed) return false;
+  return findInstalledJavas().length === 0;
+}
+
+/**
  * Prompt loop builder
  */
 function promptUser() {
@@ -329,6 +341,9 @@ function promptUser() {
     rl.prompt();
   } else if (currentState === 'PROPERTIES_INPUT') {
     rl.setPrompt(colors.bold(`Enter new value for ${propertiesContext.selectedKey}: `));
+    rl.prompt();
+  } else if (currentState === 'CONFIRM_JAVA_INSTALL') {
+    rl.setPrompt(colors.bold('Install Java 25 now? (y/n): '));
     rl.prompt();
   } else if (currentState === 'CONSOLE' || currentState === 'LOG_VIEW' || currentState === 'TUNNEL_LOG_VIEW') {
     // Log/console streaming has no custom prompt.
@@ -526,6 +541,31 @@ async function handleLine(line: string) {
       break;
     }
 
+    case 'CONFIRM_JAVA_INSTALL': {
+      const ans = trimmed.toLowerCase();
+      if (ans === 'y' || ans === 'yes') {
+        console.log(colors.cyan('Installing Temurin 25 JDK via winget — this can take a few minutes...'));
+        const result = installTemurin25();
+        if (!result) {
+          currentState = 'COMMAND';
+          console.log(colors.failure('Could not install or find Java automatically. Install Temurin 25 from https://adoptium.net, then run start again.'));
+          promptUser();
+          break;
+        }
+        configManager.updateSettings({ defaultJavaPath: result.path });
+        console.log(colors.success(`Java ${result.version} installed and selected.`));
+        currentState = 'COMMAND';
+        console.log(colors.cyan('Starting server...'));
+        console.log(await router.executeStart());
+        promptUser();
+      } else {
+        currentState = 'COMMAND';
+        console.log(colors.info('Start cancelled — Java is required to run a server.'));
+        promptUser();
+      }
+      break;
+    }
+
     case 'PROPERTIES_SELECT':
       if (trimmed === '8') {
         currentState = 'COMMAND';
@@ -660,6 +700,12 @@ async function handleCommandState(line: string) {
       break;
 
     case 'start':
+      if (needsJavaPrompt()) {
+        currentState = 'CONFIRM_JAVA_INSTALL';
+        console.log(colors.warning('Java 25 is required to start a server, but none was found on this Windows PC.'));
+        promptUser();
+        break;
+      }
       console.log(colors.cyan('Starting server...'));
       console.log(await router.executeStart());
       break;

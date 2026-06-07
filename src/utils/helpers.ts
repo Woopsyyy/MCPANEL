@@ -232,36 +232,60 @@ export function checkJava(javaPath = 'java'): { installed: boolean; version: str
 }
 
 /**
- * Best-effort discovery of installed Java runtimes (Linux/WSL/macOS common
- * locations). Returns each working java binary with its version, newest first.
+ * Best-effort discovery of installed Java runtimes. Scans Linux/macOS common
+ * locations, and on Windows scans the Adoptium/Java install roots, %JAVA_HOME%,
+ * and `where java`. Returns each working java binary with its version, newest
+ * first.
  */
 export function findInstalledJavas(): Array<{ path: string; version: string }> {
   const found = new Map<string, string>(); // path -> version
 
-  const searchRoots = [
-    '/usr/lib/jvm',
-    '/usr/java',
-    '/opt/java',
-    '/Library/Java/JavaVirtualMachines',
-  ];
+  const probe = (bin: string) => {
+    if (found.has(bin)) return;
+    try {
+      if (fs.statSync(bin).isFile()) {
+        const info = checkJava(bin);
+        if (info.installed) found.set(bin, info.version);
+      }
+    } catch { /* not a file / not accessible */ }
+  };
 
-  for (const root of searchRoots) {
-    let entries: string[] = [];
-    try { entries = fs.readdirSync(root); } catch { continue; }
-    for (const entry of entries) {
-      // Linux layout: <root>/<jdk>/bin/java ; macOS: <jdk>/Contents/Home/bin/java
-      const candidates = [
-        `${root}/${entry}/bin/java`,
-        `${root}/${entry}/Contents/Home/bin/java`,
-      ];
-      for (const bin of candidates) {
-        if (found.has(bin)) continue;
-        try {
-          if (fs.statSync(bin).isFile()) {
-            const info = checkJava(bin);
-            if (info.installed) found.set(bin, info.version);
-          }
-        } catch { /* not a file / not accessible */ }
+  if (process.platform === 'win32') {
+    if (process.env.JAVA_HOME) {
+      probe(`${process.env.JAVA_HOME}\\bin\\java.exe`);
+    }
+    const winRoots = [
+      'C:\\Program Files\\Eclipse Adoptium',
+      'C:\\Program Files\\Java',
+      'C:\\Program Files (x86)\\Java',
+    ];
+    for (const root of winRoots) {
+      let entries: string[] = [];
+      try { entries = fs.readdirSync(root); } catch { continue; }
+      for (const entry of entries) {
+        probe(`${root}\\${entry}\\bin\\java.exe`);
+      }
+    }
+    // PATH fallback — `where java` lists every java.exe on PATH.
+    try {
+      const out = execSync('where java', { stdio: ['pipe', 'pipe', 'pipe'] })
+        .toString().trim().split(/\r?\n/);
+      for (const line of out) probe(line.trim());
+    } catch { /* none on PATH */ }
+  } else {
+    const searchRoots = [
+      '/usr/lib/jvm',
+      '/usr/java',
+      '/opt/java',
+      '/Library/Java/JavaVirtualMachines',
+    ];
+    for (const root of searchRoots) {
+      let entries: string[] = [];
+      try { entries = fs.readdirSync(root); } catch { continue; }
+      for (const entry of entries) {
+        // Linux: <root>/<jdk>/bin/java ; macOS: <jdk>/Contents/Home/bin/java
+        probe(`${root}/${entry}/bin/java`);
+        probe(`${root}/${entry}/Contents/Home/bin/java`);
       }
     }
   }
@@ -270,6 +294,25 @@ export function findInstalledJavas(): Array<{ path: string; version: string }> {
     .map(([path, version]) => ({ path, version }))
     // Sort by leading version number descending (newest JDK first).
     .sort((a, b) => parseInt(b.version, 10) - parseInt(a.version, 10));
+}
+
+/**
+ * Windows-only: installs Eclipse Temurin 25 JDK via winget, then re-detects the
+ * newest installed JDK. Returns the resolved java binary + version, or null if
+ * install/detection failed (or not on Windows). Best-effort — winget can exit
+ * non-zero yet still succeed, so we always re-probe afterwards.
+ */
+export function installTemurin25(): { path: string; version: string } | null {
+  if (process.platform !== 'win32') return null;
+  try {
+    execSync(
+      'winget install --id EclipseAdoptium.Temurin.25.JDK -e --silent ' +
+      '--accept-source-agreements --accept-package-agreements',
+      { stdio: 'inherit' }
+    );
+  } catch { /* winget may exit non-zero; re-probe regardless */ }
+  const found = findInstalledJavas();
+  return found.length ? found[0] : null;
 }
 
 /**
