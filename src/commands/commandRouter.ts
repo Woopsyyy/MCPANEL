@@ -452,6 +452,7 @@ export class CommandRouter {
 
     if (status.address && status.address !== 'None') {
       output.push(`\n🎮 Connect at: ${colors.bold(colors.green(`${status.address}:${status.port}`))}`);
+      output.push(colors.gray(`(Enter the full address WITH ":${status.port}" — the bare domain defaults to 25565 and won't connect.)`));
     }
 
     // Persistence diagnostics: whether the agent is claimed/saved, and where.
@@ -558,9 +559,13 @@ export class CommandRouter {
         onStatus: (msg) => console.log(colors.info(msg)),
       });
 
+      const portHint = type === 'java'
+        ? colors.gray(`In Minecraft, enter the FULL address including ":${status.port}" — the bare domain defaults to port 25565 and will not connect.`)
+        : colors.gray(`In Minecraft Bedrock, enter the address and set the Port field to ${status.port}.`);
       return [
         colors.success(`${type === 'java' ? 'Java' : 'Bedrock'} tunnel is online!`),
         `\n🎮 Connect at: ${colors.bold(colors.green(`${status.address}:${status.port}`))}`,
+        portHint,
         colors.gray('Share this address with players. The tunnel stays up while MCPANEL is running.'),
       ].join('\n');
     } catch (err: any) {
