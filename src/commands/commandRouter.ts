@@ -49,6 +49,7 @@ export class CommandRouter {
       '  /properties                  - Edit server.properties interactively',
       '',
       colors.bold(colors.green('Tunnel Commands (Playit.gg)')),
+      '  /setup                       - One-time Playit account claim (browser approval)',
       '  /tunnel java                 - Auto-create & start a Java tunnel, returns address',
       '  /tunnel bedrock              - Auto-create & start a Bedrock tunnel, returns address',
       '  /tunnel status               - Check tunnel status, address and latency',
@@ -539,6 +540,36 @@ export class CommandRouter {
         return colors.failure('The agent secret is read-only. Run /tunnel reset and try again to re-claim it.');
       }
       return colors.failure(`Failed to create tunnel: ${err.message}`);
+    }
+  }
+
+  /**
+   * Executes /setup — runs the one-time Playit agent claim (browser approval),
+   * saving the agent secret. Works on all platforms (HTTP claim, no playit-cli).
+   * After this, /tunnel java|bedrock is fully automatic.
+   */
+  public async executeSetup(): Promise<string> {
+    if (this.playitManager.getSecret()) {
+      return colors.warning('Playit is already set up (agent secret saved). Run /tunnel reset first if you want to re-claim.');
+    }
+
+    try {
+      await this.playitManager.ensureSecret({
+        onClaimUrl: (url) => {
+          const opened = openInBrowser(url);
+          console.log(`\n🔗 ${colors.bold('Approve the agent in your browser to finish setup.')}`);
+          if (opened) {
+            console.log(colors.gray('Your browser was opened automatically — sign in and click Approve.'));
+          } else {
+            console.log(colors.gray('Open this link, sign in (free account), and click Approve:'));
+          }
+          console.log(colors.underline(colors.cyan(url)));
+        },
+        onStatus: (msg) => console.log(colors.info(msg)),
+      });
+      return colors.success('Playit is set up! You can now run /tunnel java or /tunnel bedrock.');
+    } catch (err: any) {
+      return colors.failure(`Setup failed: ${err.message}`);
     }
   }
 

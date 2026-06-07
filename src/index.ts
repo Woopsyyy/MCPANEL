@@ -158,6 +158,7 @@ const COMMAND_LIST = [
   '/stats', '/folder', '/properties', '/java',
   '/backup create', '/backup list', '/backup restore',
   '/plugins list', '/plugins install', '/plugins remove',
+  '/setup',
   '/tunnel java', '/tunnel bedrock', '/tunnel status', '/tunnel stop', '/tunnel reset',
   '/config', '/clear', '/exit'
 ];
@@ -677,6 +678,10 @@ async function handleCommandState(line: string) {
       } else {
         console.log(colors.failure('Syntax: /plugins [list|install|remove]'));
       }
+      break;
+
+    case '/setup':
+      console.log(await router.executeSetup());
       break;
 
     case '/tunnel': {

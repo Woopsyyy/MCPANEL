@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
+import * as crypto from 'crypto';
 import { spawn, ChildProcess, execFile } from 'child_process';
 import { ConfigManager, APP_ROOT } from '../config/configManager';
 import { detectOS } from '../utils/helpers';
@@ -196,6 +197,44 @@ export class PlayitManager {
     return this.apiPost('/agents/rundata', {}, secret);
   }
 
+  /**
+   * Unauthenticated POST for the claim endpoints. Unlike apiPost it returns the
+   * raw { status, data } envelope and does NOT throw on `status:"fail"` — a fail
+   * (e.g. "CodeNotFound" while waiting for approval) is a normal polling state.
+   */
+  private apiClaim(apiPath: string, body: any): Promise<{ status: string; data: any }> {
+    const payload = JSON.stringify(body || {});
+    const url = new URL(PLAYIT_API + apiPath);
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        {
+          hostname: url.hostname,
+          path: url.pathname,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (c) => { data += c; });
+          res.on('end', () => {
+            try {
+              const parsed = JSON.parse(data);
+              resolve({ status: parsed.status, data: parsed.data });
+            } catch {
+              reject(new Error(`Bad claim response: ${data.slice(0, 200)}`));
+            }
+          });
+        }
+      );
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+  }
+
   /** Picks the public address from a rundata tunnel entry. */
   private tunnelAddress(tunnel: any): { address: string; port: string } {
     const port = tunnel?.port?.from ?? tunnel?.local_port ?? 0;
@@ -252,63 +291,65 @@ export class PlayitManager {
     });
   }
 
-  /** Ensures a write-capable agent secret, driving the one-time claim if needed. */
+  /**
+   * Ensures a write-capable agent secret, driving the one-time claim if needed.
+   *
+   * The claim is done entirely over the playit HTTP API (no playit-cli), so it
+   * works identically on Windows, WSL, Linux and macOS. The agent binary is only
+   * needed later, for the traffic relay.
+   */
   public async ensureSecret(callbacks: SetupCallbacks = {}): Promise<string> {
     const existing = this.getSecret();
     if (existing) return existing;
 
-    await this.ensureBinary();
+    // A claim code is just a short random hex string generated client-side.
+    const code = crypto.randomBytes(5).toString('hex');
+    const claimBody = { code, agent_type: 'self-managed', version: 'mcpanel 1.0' };
 
     callbacks.onStatus?.('Generating a new agent claim code...');
-    const code = (await this.runCli(['claim', 'generate'])).replace(/[^a-f0-9]/gi, '');
-    if (!code) throw new Error('Failed to generate a claim code.');
+    await this.apiClaim('/claim/setup', claimBody);
 
-    const url = (await this.runCli(['claim', 'url', code, '--name', 'mcpanel', '--type', 'self-managed'])).trim();
+    const url = `https://playit.gg/claim/${code}`;
     this.tunnelStatus.claimUrl = url;
     callbacks.onClaimUrl?.(url);
 
-    callbacks.onStatus?.('Waiting for the agent to be claimed (this only happens once)...');
-    const secret = await this.exchangeClaim(code);
+    // Poll setup (which also keeps the code alive) until the user approves.
+    callbacks.onStatus?.('Waiting for you to approve the agent in your browser (this only happens once)...');
+    const deadline = Date.now() + 5 * 60 * 1000; // 5 minutes
+    let approved = false;
+    while (Date.now() < deadline) {
+      await this.sleep(3000);
+      const res = await this.apiClaim('/claim/setup', claimBody);
+      const status = typeof res.data === 'string' ? res.data : '';
+      if (status === 'UserAccepted') { approved = true; break; }
+      if (status === 'UserRejected') {
+        this.tunnelStatus.claimUrl = null;
+        throw new Error('Claim was rejected in the browser. Run /setup to try again.');
+      }
+    }
+    if (!approved) {
+      this.tunnelStatus.claimUrl = null;
+      throw new Error('Timed out waiting for approval. Open the link, click Approve, then run /setup again.');
+    }
+
+    // Exchange the approved code for the 64-char agent secret.
+    callbacks.onStatus?.('Approved! Retrieving your agent secret...');
+    let secret = '';
+    for (let i = 0; i < 10 && !secret; i++) {
+      const ex = await this.apiClaim('/claim/exchange', { code });
+      const match = JSON.stringify(ex.data ?? '').match(/[a-f0-9]{64}/i);
+      if (ex.status === 'success' && match) secret = match[0].toLowerCase();
+      else await this.sleep(2000);
+    }
+    if (!secret) {
+      this.tunnelStatus.claimUrl = null;
+      throw new Error('Could not retrieve the agent secret after approval. Run /setup to try again.');
+    }
 
     this.configManager.setPlayitSecret(secret);
     this.tunnelStatus.claimUrl = null;
     callbacks.onStatus?.('Agent claimed and linked. Secret saved — future tunnels are fully automatic.');
     return secret;
-  }
-
-  /** Spawns `claim exchange` and resolves once a 64-char hex secret is printed. */
-  private exchangeClaim(code: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const cliPath = this.getCliPath();
-      const child = spawn(cliPath, ['claim', 'exchange', code, '--wait', '0'], {
-        cwd: path.dirname(cliPath),
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      this.claimProcess = child;
-
-      let buffer = '';
-      const scan = (data: Buffer) => {
-        buffer += stripAnsi(data.toString());
-        const match = buffer.match(/[a-f0-9]{64}/i);
-        if (match) {
-          this.claimProcess = null;
-          try { child.kill(); } catch { /* ignore */ }
-          resolve(match[0].toLowerCase());
-        }
-      };
-      child.stdout?.on('data', scan);
-      child.stderr?.on('data', scan);
-
-      child.on('close', (codeExit) => {
-        if (this.claimProcess === child) {
-          this.claimProcess = null;
-          const match = buffer.match(/[a-f0-9]{64}/i);
-          if (match) resolve(match[0].toLowerCase());
-          else reject(new Error(`Claim was not completed (exit ${codeExit}). Visit the link, then try again.`));
-        }
-      });
-      child.on('error', (err) => { this.claimProcess = null; reject(err); });
-    });
   }
 
   // ---------------------------------------------------------------------------
