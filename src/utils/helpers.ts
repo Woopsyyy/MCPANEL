@@ -297,6 +297,25 @@ export function findInstalledJavas(): Array<{ path: string; version: string }> {
 }
 
 /**
+ * Windows-only: installs Eclipse Temurin 25 JDK via winget, then re-detects the
+ * newest installed JDK. Returns the resolved java binary + version, or null if
+ * install/detection failed (or not on Windows). Best-effort — winget can exit
+ * non-zero yet still succeed, so we always re-probe afterwards.
+ */
+export function installTemurin25(): { path: string; version: string } | null {
+  if (process.platform !== 'win32') return null;
+  try {
+    execSync(
+      'winget install --id EclipseAdoptium.Temurin.25.JDK -e --silent ' +
+      '--accept-source-agreements --accept-package-agreements',
+      { stdio: 'inherit' }
+    );
+  } catch { /* winget may exit non-zero; re-probe regardless */ }
+  const found = findInstalledJavas();
+  return found.length ? found[0] : null;
+}
+
+/**
  * Cleans the Java version output to a short recognizable string
  */
 function cleanJavaVersion(output: string): string {
