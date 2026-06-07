@@ -1,0 +1,64 @@
+name: Publish to npm
+
+# Publishes @woopsy/mcpanel to npm automatically.
+#
+# Trigger: push a version tag like `v1.0.2`. The easiest way:
+#     npm version patch        # bumps package.json + creates the git tag
+#     git push --follow-tags   # pushes the commit AND the tag -> runs this workflow
+#
+# You can also run it manually from the Actions tab (workflow_dispatch).
+#
+# One-time setup (so it can publish without your 2FA code):
+#   1. npmjs.com -> Profile -> Access Tokens -> Generate New Token -> "Automation"
+#      (Automation tokens bypass 2FA in CI.)
+#   2. GitHub repo -> Settings -> Secrets and variables -> Actions ->
+#      New repository secret -> name: NPM_TOKEN, value: <the token>
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # enables npm provenance (supply-chain attestation)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@woopsy'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Skip if this version is already published
+        id: check
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NAME@$VERSION is already published — skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Publishing $NAME@$VERSION"
+          fi
+
+      - name: Publish
+        if: steps.check.outputs.exists == 'false'
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

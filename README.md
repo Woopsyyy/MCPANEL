@@ -144,6 +144,26 @@ npm run dev      # run from TypeScript (ts-node)
 npm run build    # compile to dist/
 ```
 
+### Releasing (maintainers)
+
+Publishing is automated by GitHub Actions (`.github/workflows/publish.yml`). You never
+run `npm publish` by hand.
+
+**One-time setup:**
+1. Create an npm **Automation** token: npmjs.com → Access Tokens → Generate New Token →
+   *Automation* (these bypass 2FA in CI).
+2. Add it to the repo: GitHub → Settings → Secrets and variables → Actions → New repository
+   secret → name `NPM_TOKEN`.
+
+**Every release after that:**
+```bash
+npm version patch      # or minor / major — bumps package.json and creates a git tag
+git push --follow-tags # pushes the commit + tag; CI builds and publishes to npm
+```
+
+The workflow skips automatically if that version is already on npm, and `npm install -g @woopsy/mcpanel@latest`
+picks up the new version once it's green.
+
 ---
 
 ## License
