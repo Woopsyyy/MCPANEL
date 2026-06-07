@@ -26,3 +26,28 @@ playit_prerender.js
 *.tgz
 .npmrc
 .env
+
+
+woopsy@Josh:~/project/Random/CLI$ npm run push
+
+> @woopsy/mcpanel@3.0.1 push
+> node scripts/push.js
+
+
+mcpanel release  (branch: main, current: v3.0.1)
+
+No file changes — this will publish a fresh version bump.
+
+Release description: fix
+Version bump (patch/minor/major) [patch]: major
+[main 20989ea] fix
+v4.0.0
+
+Pushing main and tag v4.0.0...
+fatal: unable to access 'https://github.com/Woopsyyy/MCPANEL.git/': Failed to connect to github.com port 443 after 44 ms: Couldn't connect to server
+
+✗ Command failed: git push --follow-tags
+woopsy@Josh:~/project/Random/CLI$
+
+
+
