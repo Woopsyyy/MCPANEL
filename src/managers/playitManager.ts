@@ -40,6 +40,8 @@ export class PlayitManager {
   private playitProcess: ChildProcess | null = null;
   private claimProcess: ChildProcess | null = null;
   private tunnelStatus: TunnelStatus;
+  // Optional live consumer of relay output, used by the inline `/tunnel log` view.
+  private tunnelLogCallback: ((data: string) => void) | null = null;
 
   constructor(configManager: ConfigManager) {
     this.configManager = configManager;
@@ -459,11 +461,13 @@ export class PlayitManager {
         const chunk = stripAnsi(d.toString());
         logger.logTunnel(`[stdout] ${chunk.trim()}`);
         this.parsePlayitOutput(chunk);
+        this.tunnelLogCallback?.(chunk);
       });
       this.playitProcess.stderr?.on('data', (d: Buffer) => {
         const chunk = stripAnsi(d.toString());
         logger.logTunnel(`[stderr] ${chunk.trim()}`);
         this.parsePlayitOutput(chunk);
+        this.tunnelLogCallback?.(chunk);
       });
       this.playitProcess.on('close', (code) => {
         logger.logTunnel(`Playit relay exited with code ${code}`);
@@ -499,6 +503,21 @@ export class PlayitManager {
 
   public getStatus(): TunnelStatus {
     return this.tunnelStatus;
+  }
+
+  /** True when the relay daemon process is currently running. */
+  public isAgentRunning(): boolean {
+    return this.playitProcess !== null;
+  }
+
+  /** Streams live relay output (stdout/stderr) to the given consumer. */
+  public registerTunnelStream(cb: (data: string) => void): void {
+    this.tunnelLogCallback = cb;
+  }
+
+  /** Stops streaming live relay output. */
+  public unregisterTunnelStream(): void {
+    this.tunnelLogCallback = null;
   }
 
   /** Clears the saved secret so the agent can be re-claimed from scratch. */

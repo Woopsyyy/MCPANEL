@@ -12,7 +12,7 @@ import { BackupManager } from './managers/backupManager';
 import { PlayitManager } from './managers/playitManager';
 import { CommandRouter } from './commands/commandRouter';
 import * as colors from './utils/colors';
-import { detectOS, checkJava, openTerminalTail } from './utils/helpers';
+import { detectOS, checkJava } from './utils/helpers';
 import { checkForUpdate } from './services/updateChecker';
 import { logger } from './utils/logger';
 import { TrayManager } from './managers/trayManager';
@@ -45,7 +45,8 @@ type ShellState =
   | 'PROPERTIES_SELECT'
   | 'PROPERTIES_INPUT'
   | 'CONSOLE'
-  | 'LOG_VIEW';
+  | 'LOG_VIEW'
+  | 'TUNNEL_LOG_VIEW';
 
 let currentState: ShellState = 'COMMAND';
 
@@ -168,13 +169,13 @@ const COMMAND_LIST = [
   '/backup create', '/backup list', '/backup restore',
   '/plugins list', '/plugins install', '/plugins remove',
   '/setup',
-  '/tunnel java', '/tunnel bedrock', '/tunnel status', '/tunnel stop', '/tunnel reset',
+  '/tunnel java', '/tunnel bedrock', '/tunnel status', '/tunnel log', '/tunnel stop', '/tunnel reset',
   '/config', '/clear', '/update', '/tray', '/background', '/exit'
 ];
 
 // Subcommands offered once "<command> " has been typed.
 const SUBCOMMANDS: { [cmd: string]: string[] } = {
-  '/tunnel': ['java', 'bedrock', 'status', 'stop', 'reset'],
+  '/tunnel': ['java', 'bedrock', 'status', 'log', 'stop', 'reset'],
   '/backup': ['create', 'list', 'restore'],
   '/plugins': ['list', 'install', 'remove'],
 };
@@ -296,6 +297,17 @@ function exitLogView() {
 }
 
 /**
+ * Exits the in-place live tunnel-log view.
+ */
+function exitTunnelLogView() {
+  if (currentState !== 'TUNNEL_LOG_VIEW') return;
+  playitManager.unregisterTunnelStream();
+  currentState = 'COMMAND';
+  console.log(colors.info('\nReturned to MCPANEL shell.'));
+  promptUser();
+}
+
+/**
  * Prompt loop builder
  */
 function promptUser() {
@@ -316,7 +328,7 @@ function promptUser() {
   } else if (currentState === 'PROPERTIES_INPUT') {
     rl.setPrompt(colors.bold(`Enter new value for ${propertiesContext.selectedKey}: `));
     rl.prompt();
-  } else if (currentState === 'CONSOLE' || currentState === 'LOG_VIEW') {
+  } else if (currentState === 'CONSOLE' || currentState === 'LOG_VIEW' || currentState === 'TUNNEL_LOG_VIEW') {
     // Log/console streaming has no custom prompt.
     rl.setPrompt('');
   }
@@ -411,8 +423,8 @@ function enterConsoleMode() {
 }
 
 /**
- * /log — opens live server logs in a NEW terminal window (tail -f). Falls back
- * to a read-only in-place stream if no terminal emulator could be launched.
+ * /log — streams live server logs read-only inside THIS terminal (like
+ * /console, but without sending commands). Type /back or /exit to return.
  */
 function handleLogCommand() {
   const server = configManager.getServer();
@@ -422,32 +434,44 @@ function handleLogCommand() {
   }
 
   const logPath = logger.getServerLogPath(server.name);
-  // Ensure the file exists so `tail -f` has something to follow.
   if (!fs.existsSync(logPath)) {
     try { fs.writeFileSync(logPath, '', 'utf-8'); } catch { /* ignore */ }
   }
 
   const running = !!processManager.getActiveServer(server.name);
-  const opened = openTerminalTail(logPath, `MCPANEL Logs - ${server.name}`);
-
-  if (opened) {
-    console.log(colors.success('Live server logs opened in a new terminal window.'));
-    if (!running) {
-      console.log(colors.warning('Server is not running yet — log lines will appear once you /start it.'));
-    }
-    return;
-  }
-
-  // Fallback: stream the logs read-only inside this shell.
-  console.log(colors.warning('Could not open a separate terminal window — showing logs here instead.'));
   logViewServer = server.name;
   currentState = 'LOG_VIEW';
-  console.log(colors.bold(colors.magenta(`\n--- Live Logs: ${server.name} (type /back to return) ---`)));
+  console.log(colors.bold(colors.magenta(`\n--- Live Server Logs: ${server.name} ---`)));
+  console.log(colors.gray('Read-only. Type /back or /exit to return to MCPANEL shell.\n'));
   if (fs.existsSync(logPath)) {
     const logs = fs.readFileSync(logPath, 'utf-8').split('\n');
     process.stdout.write(logs.slice(-30).join('\n') + '\n');
   }
+  if (!running) {
+    console.log(colors.warning('Server is not running yet — lines will appear once you /start it.'));
+  }
   processManager.registerConsoleStream(server.name, (data) => {
+    process.stdout.write(data);
+  });
+}
+
+/**
+ * /tunnel log — streams the live playit relay log read-only in THIS terminal.
+ * Seeds from tunnel.log, then follows the running relay's output. /back to exit.
+ */
+function enterTunnelLogView() {
+  const logPath = logger.getTunnelLogPath();
+  currentState = 'TUNNEL_LOG_VIEW';
+  console.log(colors.bold(colors.magenta('\n--- Live Tunnel Logs (playit relay) ---')));
+  console.log(colors.gray('Read-only. Type /back or /exit to return to MCPANEL shell.\n'));
+  if (fs.existsSync(logPath)) {
+    const logs = fs.readFileSync(logPath, 'utf-8').split('\n');
+    process.stdout.write(logs.slice(-30).join('\n') + '\n');
+  }
+  if (!playitManager.isAgentRunning()) {
+    console.log(colors.warning('Tunnel agent is not running — start it with /tunnel java or /tunnel bedrock.'));
+  }
+  playitManager.registerTunnelStream((data) => {
     process.stdout.write(data);
   });
 }
@@ -549,6 +573,13 @@ async function handleLine(line: string) {
       // Read-only: only /back or /exit leaves; everything else is ignored.
       if (trimmed === '/exit' || trimmed === '/back') {
         exitLogView();
+      }
+      break;
+
+    case 'TUNNEL_LOG_VIEW':
+      // Read-only: only /back or /exit leaves; everything else is ignored.
+      if (trimmed === '/exit' || trimmed === '/back') {
+        exitTunnelLogView();
       }
       break;
   }
@@ -716,7 +747,7 @@ async function handleCommandState(line: string) {
     case '/tunnel': {
       const sub = (args[0] || '').toLowerCase();
       if (!sub) {
-        console.log(colors.failure('Syntax: /tunnel [java|bedrock|status|stop|reset]'));
+        console.log(colors.failure('Syntax: /tunnel [java|bedrock|status|log|stop|reset]'));
       } else if (sub === 'java' || sub === 'bedrock') {
         console.log(await router.executeTunnelCreate(sub));
       } else if (sub === 'create') {
@@ -730,10 +761,12 @@ async function handleCommandState(line: string) {
         console.log(router.executeTunnelStop());
       } else if (sub === 'status') {
         console.log(router.executeTunnelStatus());
+      } else if (sub === 'log') {
+        enterTunnelLogView();
       } else if (sub === 'reset') {
         console.log(await router.executeTunnelReset());
       } else {
-        console.log(colors.failure('Syntax: /tunnel [java|bedrock|status|stop|reset]'));
+        console.log(colors.failure('Syntax: /tunnel [java|bedrock|status|log|stop|reset]'));
       }
       break;
     }

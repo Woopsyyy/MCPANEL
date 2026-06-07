@@ -52,6 +52,11 @@ export const logger = {
     return path.join(LOGS_DIR, `server-${serverName.toLowerCase()}.log`);
   },
 
+  getTunnelLogPath(): string {
+    ensureLogsDirExists();
+    return path.join(LOGS_DIR, 'tunnel.log');
+  },
+
   writeServerConsoleLog(serverName: string, data: string) {
     ensureLogsDirExists();
     const filePath = path.join(LOGS_DIR, `server-${serverName.toLowerCase()}.log`);
