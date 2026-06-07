@@ -392,3 +392,76 @@ function isNewerVersion(current: string, latest: string): boolean {
   }
   return false;
 }
+
+/**
+ * Gets the handle/ID of the active console window.
+ * Returns null if not supported or fails.
+ */
+export function getActiveWindowHandle(): string | null {
+  const osType = detectOS();
+  try {
+    if (osType === 'Windows') {
+      const cmd = `powershell -NoProfile -Command "Add-Type -MemberDefinition '[DllImport(\\"user32.dll\\")] public static extern IntPtr GetForegroundWindow();' -Name Win32Util -Namespace Win32 -PassThru | Out-Null; [Win32.Win32Util]::GetForegroundWindow()"`;
+      return execSync(cmd).toString().trim();
+    } else if (osType === 'WSL') {
+      const cmd = `powershell.exe -NoProfile -Command "Add-Type -MemberDefinition '[DllImport(\\"user32.dll\\")] public static extern IntPtr GetForegroundWindow();' -Name Win32Util -Namespace Win32 -PassThru | Out-Null; [Win32.Win32Util]::GetForegroundWindow()"`;
+      return execSync(cmd).toString().trim();
+    } else {
+      // Native Linux
+      return execSync('xdotool getactivewindow 2>/dev/null').toString().trim() || null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hides the console window using its handle/ID.
+ */
+export function hideConsoleWindow(handle: string): boolean {
+  if (!handle) return false;
+  const osType = detectOS();
+  try {
+    if (osType === 'Windows') {
+      const cmd = `powershell -NoProfile -Command "Add-Type -MemberDefinition '[DllImport(\\"user32.dll\\")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);' -Name Win32Util -Namespace Win32; [Win32.Win32Util]::ShowWindowAsync([IntPtr]${handle}, 0)"`;
+      execSync(cmd);
+      return true;
+    } else if (osType === 'WSL') {
+      const cmd = `powershell.exe -NoProfile -Command "Add-Type -MemberDefinition '[DllImport(\\"user32.dll\\")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);' -Name Win32Util -Namespace Win32; [Win32.Win32Util]::ShowWindowAsync([IntPtr]${handle}, 0)"`;
+      execSync(cmd);
+      return true;
+    } else {
+      // Native Linux
+      execSync(`xdotool windowunmap ${handle} 2>/dev/null`);
+      return true;
+    }
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Restores and focuses the console window using its handle/ID.
+ */
+export function showConsoleWindow(handle: string): boolean {
+  if (!handle) return false;
+  const osType = detectOS();
+  try {
+    if (osType === 'Windows') {
+      const cmd = `powershell -NoProfile -Command "Add-Type -MemberDefinition '[DllImport(\\"user32.dll\\")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow); [DllImport(\\"user32.dll\\")] public static extern bool SetForegroundWindow(IntPtr hWnd);' -Name Win32Util -Namespace Win32; [Win32.Win32Util]::ShowWindowAsync([IntPtr]${handle}, 9); [Win32.Win32Util]::SetForegroundWindow([IntPtr]${handle})"`;
+      execSync(cmd);
+      return true;
+    } else if (osType === 'WSL') {
+      const cmd = `powershell.exe -NoProfile -Command "Add-Type -MemberDefinition '[DllImport(\\"user32.dll\\")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow); [DllImport(\\"user32.dll\\")] public static extern bool SetForegroundWindow(IntPtr hWnd);' -Name Win32Util -Namespace Win32; [Win32.Win32Util]::ShowWindowAsync([IntPtr]${handle}, 9); [Win32.Win32Util]::SetForegroundWindow([IntPtr]${handle})"`;
+      execSync(cmd);
+      return true;
+    } else {
+      // Native Linux
+      execSync(`xdotool windowmap ${handle} 2>/dev/null && xdotool windowactivate ${handle} 2>/dev/null`);
+      return true;
+    }
+  } catch {
+    return false;
+  }
+}
+

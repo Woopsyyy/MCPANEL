@@ -15,6 +15,7 @@ import * as colors from './utils/colors';
 import { detectOS, checkJava, openTerminalTail } from './utils/helpers';
 import { checkForUpdate } from './services/updateChecker';
 import { logger } from './utils/logger';
+import { TrayManager } from './managers/trayManager';
 
 // Initialize managers
 const configManager = new ConfigManager();
@@ -24,6 +25,7 @@ const processManager = new ProcessManager();
 const serverManager = new ServerManager(configManager);
 const backupManager = new BackupManager(configManager);
 const playitManager = new PlayitManager(configManager);
+const trayManager = new TrayManager(configManager, processManager, playitManager);
 
 const router = new CommandRouter(
   configManager,
@@ -167,7 +169,7 @@ const COMMAND_LIST = [
   '/plugins list', '/plugins install', '/plugins remove',
   '/setup',
   '/tunnel java', '/tunnel bedrock', '/tunnel status', '/tunnel stop', '/tunnel reset',
-  '/config', '/clear', '/update', '/exit'
+  '/config', '/clear', '/update', '/tray', '/background', '/exit'
 ];
 
 // Subcommands offered once "<command> " has been typed.
@@ -249,6 +251,11 @@ function getStatusBar(): string {
   const running = server ? !!processManager.getActiveServer(server.name) : false;
   const backupsCount = backupManager.listBackups().length;
   const tunnelStatus = playitManager.getStatus().status;
+
+  // Sync menu state to the system tray
+  try {
+    trayManager.updateMenu();
+  } catch { /* ignore */ }
 
   const serverStr = !server
     ? colors.gray('none')
@@ -586,6 +593,17 @@ async function handleCommandState(line: string) {
       }
       break;
 
+    case '/tray':
+    case '/background': {
+      console.log(colors.info('\nPutting MCPANEL in the background...'));
+      console.log(colors.gray('The terminal window will be hidden. Use the system tray icon to restore it.'));
+      const success = trayManager.hideConsole();
+      if (!success) {
+        console.log(colors.failure('Failed to hide console window. Ensure you are running in a supported GUI environment.'));
+      }
+      break;
+    }
+
     case '/exit':
       logger.info('Exiting MCPANEL manager.');
       playitManager.stopTunnel();
@@ -777,6 +795,9 @@ async function showUpdateNotice() {
 async function main() {
   renderBanner();
   await showUpdateNotice();
+
+  // Start the background system tray loop
+  await trayManager.start();
 
   rl = readline.createInterface({
     input: process.stdin,

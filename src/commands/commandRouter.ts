@@ -71,6 +71,8 @@ export class CommandRouter {
       '  /stats                       - System stats + CPU/RAM/disk of the server',
       '  /java [path]                 - Show/list Java runtimes, or set the one used to launch',
       '  /folder                      - Open the server folder in the file explorer',
+      '  /tray                        - Run in background, minimize console to system tray',
+      '  /background                  - Synonym for /tray',
       '  /clear                       - Clear the screen, scrollback and command history',
       '  /update                      - Check npm for a newer version of MCPANEL',
       '  /config                      - View active application config.json',
