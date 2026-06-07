@@ -1,0 +1,19 @@
+# The package ships ONLY what's in package.json "files" (dist/). This file is a
+# belt-and-suspenders block against accidentally publishing source, secrets or
+# large binaries if the "files" whitelist is ever removed.
+src/
+assets/
+config.json
+logs/
+backups/
+downloads/
+playit/
+playit_v1
+playitd_v1
+playit_index.js
+playit_prerender.js
+*.log
+.claude/
+tsconfig.json
+*.tgz
+.gitignore

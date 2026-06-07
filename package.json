@@ -1,0 +1,67 @@
+{
+  "name": "@woopsy/mcpanel",
+  "version": "1.0.0",
+  "description": "MCPANEL — a terminal-based, single-server Minecraft server manager with an Arch/neofetch-style UI, live logs, backups, plugins and Playit.gg tunnels.",
+  "main": "dist/index.js",
+  "bin": {
+    "mcpanel": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "postbuild": "node -e \"try{require('fs').chmodSync('dist/index.js',0o755)}catch(e){}\"",
+    "start": "ts-node src/index.ts",
+    "dev": "ts-node src/index.ts",
+    "prod": "node dist/index.js",
+    "prepublishOnly": "npm run build",
+    "install:global": "npm run build && npm install -g ."
+  },
+  "keywords": [
+    "minecraft",
+    "minecraft-server",
+    "server-manager",
+    "cli",
+    "terminal",
+    "tui",
+    "fabric",
+    "paper",
+    "playit",
+    "backups",
+    "wsl"
+  ],
+  "author": "Woopsy (https://github.com/Woopsyyy)",
+  "license": "MIT",
+  "homepage": "https://github.com/Woopsyyy/MCPANEL#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Woopsyyy/MCPANEL.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Woopsyyy/MCPANEL/issues"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.12",
+    "chalk": "^4.1.2",
+    "figlet": "^1.11.0",
+    "pidusage": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.5",
+    "@types/figlet": "^1.7.0",
+    "@types/node": "^20.12.12",
+    "@types/pidusage": "^2.0.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "private": false
+}
