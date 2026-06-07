@@ -357,8 +357,13 @@ export class PlayitManager {
   // ---------------------------------------------------------------------------
 
   /**
-   * One-call entry point: ensures binary + secret, creates the tunnel via the
-   * API, starts the relay daemon, and returns the live tunnel status.
+   * One-call entry point: ensures binary + secret, starts the relay daemon (so
+   * the agent registers its version with playit), creates the tunnel via the
+   * API, and returns the live tunnel status.
+   *
+   * The relay MUST be started before creating a tunnel — playit rejects
+   * /tunnels/create with "AgentVersionTooOld" until a current agent has
+   * connected and reported its version.
    */
   public async setupAndStart(type: 'java' | 'bedrock', callbacks: SetupCallbacks = {}): Promise<TunnelStatus> {
     await this.ensureBinary();
@@ -367,13 +372,17 @@ export class PlayitManager {
     this.tunnelStatus.status = 'Connecting';
     this.tunnelStatus.type = type;
 
+    // Start the relay first so the agent connects and registers its version.
+    callbacks.onStatus?.('Starting tunnel agent...');
+    await this.startAgent(secret);
+
     callbacks.onStatus?.('Checking your playit account for an existing tunnel...');
     let rd = await this.getRunData(secret);
     let tunnel = this.findTunnel(rd, type);
 
     if (!tunnel) {
       callbacks.onStatus?.(`Creating ${type} tunnel...`);
-      await this.createApiTunnel(type, rd.agent_id, secret);
+      await this.createTunnelWithRetry(type, rd.agent_id, secret, callbacks);
 
       // Poll until the tunnel leaves "pending" and gets a public address.
       for (let i = 0; i < 15 && !tunnel; i++) {
@@ -391,11 +400,41 @@ export class PlayitManager {
     this.tunnelStatus.port = port;
     this.configManager.updatePlayitTunnel({ tunnelAddress: address, tunnelPort: Number(port) });
 
-    callbacks.onStatus?.('Starting tunnel relay...');
-    await this.startAgent(secret);
-
     this.tunnelStatus.status = 'Online';
     return this.tunnelStatus;
+  }
+
+  /**
+   * Creates a tunnel, retrying on "AgentVersionTooOld" — that error means the
+   * freshly-started agent hasn't finished registering its version yet, so we
+   * wait and retry (refreshing the agent_id) a few times.
+   */
+  private async createTunnelWithRetry(
+    type: 'java' | 'bedrock',
+    agentId: string,
+    secret: string,
+    callbacks: SetupCallbacks
+  ): Promise<void> {
+    let lastErr: any;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      try {
+        await this.createApiTunnel(type, agentId, secret);
+        return;
+      } catch (err: any) {
+        lastErr = err;
+        if (!/AgentVersionTooOld/i.test(err.message || '')) throw err;
+        callbacks.onStatus?.('Waiting for the agent to finish registering with playit...');
+        await this.sleep(4000);
+        try {
+          const rd = await this.getRunData(secret);
+          if (rd?.agent_id) agentId = rd.agent_id;
+        } catch { /* keep previous agentId */ }
+      }
+    }
+    throw new Error(
+      `${lastErr?.message || 'AgentVersionTooOld'} — the playit agent did not register in time. ` +
+      `Make sure the server can reach playit.gg, then try /tunnel again.`
+    );
   }
 
   /** Spawns the long-running daemon that relays tunnel traffic. */

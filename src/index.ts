@@ -13,6 +13,7 @@ import { PlayitManager } from './managers/playitManager';
 import { CommandRouter } from './commands/commandRouter';
 import * as colors from './utils/colors';
 import { detectOS, checkJava, openTerminalTail } from './utils/helpers';
+import { checkForUpdate } from './services/updateChecker';
 import { logger } from './utils/logger';
 
 // Initialize managers
@@ -58,6 +59,12 @@ let logViewServer = '';
 // Readline interface
 let rl: readline.Interface;
 
+let CLI_VERSION = '1.0.3';
+try {
+  const pkg = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'package.json'), 'utf-8'));
+  CLI_VERSION = pkg.version || '1.0.3';
+} catch { /* ignore */ }
+
 /**
  * Renders the figlet "MCPANEL" ASCII banner with a chalk gradient.
  */
@@ -67,7 +74,7 @@ function renderBanner() {
   const tints = [chalk.cyanBright, chalk.cyan, chalk.greenBright, chalk.green, chalk.green];
   console.log();
   lines.forEach((line, i) => console.log((tints[i] || chalk.green)(line)));
-  console.log(chalk.greenBright.bold('  Minecraft Server Manager') + chalk.gray('   v1.0.0'));
+  console.log(chalk.greenBright.bold('  Minecraft Server Manager') + chalk.gray(`   v${CLI_VERSION}`));
 }
 
 /**
@@ -160,7 +167,7 @@ const COMMAND_LIST = [
   '/plugins list', '/plugins install', '/plugins remove',
   '/setup',
   '/tunnel java', '/tunnel bedrock', '/tunnel status', '/tunnel stop', '/tunnel reset',
-  '/config', '/clear', '/exit'
+  '/config', '/clear', '/update', '/exit'
 ];
 
 // Subcommands offered once "<command> " has been typed.
@@ -645,6 +652,10 @@ async function handleCommandState(line: string) {
       console.log(router.executeJava(args.length ? args.join(' ') : undefined));
       break;
 
+    case '/update':
+      console.log(await router.executeUpdate());
+      break;
+
     case '/config':
       console.log(router.executeConfig());
       break;
@@ -744,10 +755,28 @@ async function finishStartup() {
 }
 
 /**
+ * Prints a one-time-per-launch notice if a newer version is on npm. Fail-silent
+ * and cached, so it never slows down or blocks startup.
+ */
+async function showUpdateNotice() {
+  try {
+    const info = await checkForUpdate();
+    if (info && info.updateAvailable) {
+      console.log();
+      console.log(chalk.yellow('  ⚡ Update available: ') + chalk.gray(info.current) + chalk.gray(' → ') + chalk.greenBright.bold(info.latest));
+      console.log(chalk.gray('     Update with: ') + chalk.cyan(`npm i -g ${info.name}@latest`));
+    }
+  } catch {
+    // Never let an update check break startup.
+  }
+}
+
+/**
  * Main application setup
  */
 async function main() {
   renderBanner();
+  await showUpdateNotice();
 
   rl = readline.createInterface({
     input: process.stdin,

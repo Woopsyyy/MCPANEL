@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import { execSync, spawn } from 'child_process';
+import * as https from 'https';
 
 /**
  * Detects the runtime OS environment: Windows, WSL, or Linux
@@ -324,4 +325,70 @@ export function getSystemStats(): SystemStats {
     memUsagePct,
     uptimeSeconds: Math.floor(os.uptime()),
   };
+}
+
+/**
+ * Checks npm registry for a newer version of the CLI package.
+ * Returns the latest version string if a newer version is available, or null otherwise.
+ */
+export function checkForUpdates(currentVersion: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'registry.npmjs.org',
+      path: '/@woopsy/mcpanel/latest',
+      method: 'GET',
+      timeout: 2000,
+      headers: {
+        'User-Agent': 'mcpanel-cli',
+      },
+    };
+
+    const req = https.get(options, (res) => {
+      if (res.statusCode !== 200) {
+        resolve(null);
+        return;
+      }
+
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          const latest = parsed.version;
+          if (latest && isNewerVersion(currentVersion, latest)) {
+            resolve(latest);
+          } else {
+            resolve(null);
+          }
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(null);
+    });
+
+    req.on('error', () => {
+      resolve(null);
+    });
+  });
+}
+
+/**
+ * Basic semver comparison (a < b)
+ */
+function isNewerVersion(current: string, latest: string): boolean {
+  const cParts = current.split('.').map(Number);
+  const lParts = latest.split('.').map(Number);
+  
+  for (let i = 0; i < 3; i++) {
+    const c = cParts[i] || 0;
+    const l = lParts[i] || 0;
+    if (l > c) return true;
+    if (c > l) return false;
+  }
+  return false;
 }

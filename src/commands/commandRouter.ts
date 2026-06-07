@@ -8,6 +8,7 @@ import { PlayitManager } from '../managers/playitManager';
 import * as colors from '../utils/colors';
 import { getSystemStats, openInBrowser, openInFileExplorer, getDirSize, checkJava, findInstalledJavas } from '../utils/helpers';
 import { downloadFile } from '../services/downloadService';
+import { checkForUpdate } from '../services/updateChecker';
 import pidusage from 'pidusage';
 
 export class CommandRouter {
@@ -71,6 +72,7 @@ export class CommandRouter {
       '  /java [path]                 - Show/list Java runtimes, or set the one used to launch',
       '  /folder                      - Open the server folder in the file explorer',
       '  /clear                       - Clear the screen, scrollback and command history',
+      '  /update                      - Check npm for a newer version of MCPANEL',
       '  /config                      - View active application config.json',
       '  /exit                        - Close MCPANEL server manager',
       colors.gray('──────────────────────────────────────────────\n')
@@ -490,6 +492,23 @@ export class CommandRouter {
     }
     this.configManager.updateSettings({ defaultJavaPath: cleanPath });
     return colors.success(`Java set to "${cleanPath}" (version ${info.version}). It will be used on the next /start.`);
+  }
+
+  /**
+   * Executes /update — checks npm for a newer version and prints how to update.
+   */
+  public async executeUpdate(): Promise<string> {
+    const info = await checkForUpdate(true);
+    if (!info) {
+      return colors.warning('Could not check for updates (no network connection?).');
+    }
+    if (info.updateAvailable) {
+      return [
+        colors.warning(`Update available: ${colors.bold(info.current)} → ${colors.bold(colors.green(info.latest))}`),
+        colors.gray('Update with: ') + colors.cyan(`npm i -g ${info.name}@latest`),
+      ].join('\n');
+    }
+    return colors.success(`You're on the latest version (${info.current}).`);
   }
 
   /**
