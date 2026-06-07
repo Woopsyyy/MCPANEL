@@ -55,6 +55,7 @@ export class CommandRouter {
       '  /tunnel bedrock              - Auto-create & start a Bedrock tunnel, returns address',
       '  /tunnel status               - Check tunnel status, address and latency',
       '  /tunnel log                  - Stream live playit relay logs in this terminal (read-only)',
+      '  /playit                      - Shortcut for /tunnel log (live playit.gg logs)',
       '  /tunnel stop                 - Stop the playit tunnel agent',
       '  /tunnel reset                - Clear saved agent secret (re-claim on next tunnel)',
       '',

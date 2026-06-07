@@ -170,6 +170,7 @@ const COMMAND_LIST = [
   '/plugins list', '/plugins install', '/plugins remove',
   '/setup',
   '/tunnel java', '/tunnel bedrock', '/tunnel status', '/tunnel log', '/tunnel stop', '/tunnel reset',
+  '/playit',
   '/config', '/clear', '/update', '/tray', '/background', '/exit'
 ];
 
@@ -683,6 +684,10 @@ async function handleCommandState(line: string) {
 
     case '/log':
       handleLogCommand();
+      break;
+
+    case '/playit':
+      enterTunnelLogView();
       break;
 
     case '/stats':
