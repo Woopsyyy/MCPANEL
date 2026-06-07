@@ -240,7 +240,7 @@ export class ConfigManager {
     if (!this.isPlayitSecretPersisted(secret)) {
       throw new Error(
         `Could not persist the playit agent secret to ${CONFIG_PATH}. ` +
-        `Check that the folder exists and is writable, then run /tunnel again.`
+        `Check that the folder exists and is writable, then run tunnel again.`
       );
     }
   }

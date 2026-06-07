@@ -12,7 +12,7 @@
 # MCPANEL
 
 A terminal-based **single-server** Minecraft server manager with an Arch/neofetch-style
-startup screen. Connect one server folder and control it with simple slash commands —
+startup screen. Connect one server folder and control it with simple commands —
 start/stop, live logs in a separate window, backups, plugins, `server.properties` editing,
 Java switching, and one-click [Playit.gg](https://playit.gg) tunnels so friends can join.
 
@@ -41,7 +41,7 @@ mcpanel>
 
 - **Node.js 22+** — <https://nodejs.org>
 - **Java** matching your Minecraft version (e.g. MC 26.x needs **Java 25**, MC 1.20–1.21 needs **Java 21**).
-  MCPANEL can list and switch between installed JVMs with `/java`.
+  MCPANEL can list and switch between installed JVMs with `java`.
 
 ---
 
@@ -96,41 +96,44 @@ npx @woopsy/mcpanel
      it to `/mnt/c/...` automatically.
 3. MCPANEL detects the server type + Minecraft version, saves it, and drops you at the prompt.
 
-To connect a different server later: `/sync <path>`.
+To connect a different server later: `sync <path>`.
 
 ---
 
 ## Commands
 
+Commands are typed **without a leading slash** — just `start`, `tunnel java`, `playit`, etc.
+
 | Command | What it does |
 |---|---|
-| `/start` · `/stop` · `/restart` | Control the server process |
-| `/console` | Interactive console (type commands sent to the server) |
-| `/log` | Open **live logs in a new terminal window** (`tail -f`) |
-| `/info` | Server path, type, version and status |
-| `/sync <path>` | Connect a different server folder |
-| `/properties` | Edit `server.properties` interactively |
-| `/java [path]` | Show/list installed JVMs, or set the one used to launch |
-| `/stats` | System + server CPU / RAM / disk usage |
-| `/folder` | Open the server folder in your file explorer |
-| `/backup create` · `list` · `restore <id>` | Manage ZIP backups |
-| `/plugins list` · `install <url>` · `remove <name>` | Manage plugins |
-| `/tunnel java` · `bedrock` · `status` · `stop` · `reset` | Playit.gg tunnels |
-| `/config` · `/clear` · `/help` · `/exit` | Utilities |
+| `start` · `stop` · `restart` | Control the server process |
+| `console` | Interactive console (type commands sent to the server) |
+| `log` | Open **live logs in a new terminal window** (`tail -f`) |
+| `info` | Server path, type, version and status |
+| `sync <path>` | Connect a different server folder |
+| `properties` | Edit `server.properties` interactively |
+| `java [path]` | Show/list installed JVMs, or set the one used to launch |
+| `stats` | System + server CPU / RAM / disk usage |
+| `folder` | Open the server folder in your file explorer |
+| `backup create` · `list` · `restore <id>` | Manage ZIP backups |
+| `plugins list` · `install <url>` · `remove <name>` | Manage plugins |
+| `tunnel java` · `bedrock` · `status` · `log` · `stop` · `reset` | Playit.gg tunnels |
+| `playit` | Stream live playit.gg relay logs (shortcut for `tunnel log`) |
+| `config` · `clear` · `help` · `exit` | Utilities |
 
-Type `/help` inside MCPANEL for the full menu, and use **Tab** for autocompletion.
+Type `help` inside MCPANEL for the full menu, and use **Tab** for autocompletion.
 
 ---
 
 ## Notes
 
 - **Single server by design.** MCPANEL manages exactly one server (the one you sync).
-- **Playit tunnel.** The first `/tunnel` claims a free Playit agent in your browser once;
+- **Playit tunnel.** The first `tunnel` claims a free Playit agent in your browser once;
   the binary is downloaded automatically. Your secret is stored locally in `config.json`
   (which is git-ignored — don't commit it).
-- **`/log` in a new window.** On WSL it opens via the Windows console; on Linux it uses your
+- **`log` in a new window.** On WSL it opens via the Windows console; on Linux it uses your
   terminal emulator; on macOS it uses Terminal. If none is available it falls back to an
-  in-place read-only view (`/back` to exit).
+  in-place read-only view (`back` to exit).
 
 ---
 

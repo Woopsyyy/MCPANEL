@@ -164,26 +164,26 @@ async function ensurePlayitSetup(): Promise<void> {
 // Master list of command templates — single source of truth for both
 // tab-completion and "did you mean" suggestions.
 const COMMAND_LIST = [
-  '/help', '/start', '/stop', '/restart', '/console', '/log', '/info', '/sync',
-  '/stats', '/folder', '/properties', '/java',
-  '/backup create', '/backup list', '/backup restore',
-  '/plugins list', '/plugins install', '/plugins remove',
-  '/setup',
-  '/tunnel java', '/tunnel bedrock', '/tunnel status', '/tunnel log', '/tunnel stop', '/tunnel reset',
-  '/playit',
-  '/config', '/clear', '/update', '/tray', '/background', '/exit'
+  'help', 'start', 'stop', 'restart', 'console', 'log', 'info', 'sync',
+  'stats', 'folder', 'properties', 'java',
+  'backup create', 'backup list', 'backup restore',
+  'plugins list', 'plugins install', 'plugins remove',
+  'setup',
+  'tunnel java', 'tunnel bedrock', 'tunnel status', 'tunnel log', 'tunnel stop', 'tunnel reset',
+  'playit',
+  'config', 'clear', 'update', 'tray', 'background', 'exit'
 ];
 
 // Subcommands offered once "<command> " has been typed.
 const SUBCOMMANDS: { [cmd: string]: string[] } = {
-  '/tunnel': ['java', 'bedrock', 'status', 'log', 'stop', 'reset'],
-  '/backup': ['create', 'list', 'restore'],
-  '/plugins': ['list', 'install', 'remove'],
+  'tunnel': ['java', 'bedrock', 'status', 'log', 'stop', 'reset'],
+  'backup': ['create', 'list', 'restore'],
+  'plugins': ['list', 'install', 'remove'],
 };
 
 /** Returns top-level commands that share a prefix with the typed token. */
 function suggestCommands(token: string): string[] {
-  if (!token || !token.startsWith('/')) return [];
+  if (!token) return [];
   const tops = Array.from(new Set(COMMAND_LIST.map(c => c.split(' ')[0])));
   return tops.filter(c => c.startsWith(token) && c !== token);
 }
@@ -201,8 +201,8 @@ function completer(line: string): [string[], string] {
   const cmd = parts[0];
   const arg = parts.slice(1).join(' ');
 
-  // Completing the command word itself (e.g. "/cl" -> "/clear")
-  if (line.startsWith('/') && !line.includes(' ')) {
+  // Completing the command word itself (e.g. "cl" -> "clear")
+  if (!line.includes(' ')) {
     const hits = COMMAND_LIST.filter(c => c.startsWith(lineTrimmed));
     return [hits.length ? hits : COMMAND_LIST, line];
   }
@@ -237,7 +237,8 @@ function loadHistory() {
 }
 
 function saveHistoryLine(line: string) {
-  if (!line || line.trim().length === 0 || line.startsWith('/exit')) return;
+  const t = line.trim();
+  if (!t || t === 'exit' || t === '/exit') return;
   try {
     fs.appendFileSync(HISTORY_PATH, `${line.trim()}\n`, 'utf-8');
   } catch {
@@ -358,7 +359,7 @@ function showPropertiesMenu() {
 function startPropertiesEditor() {
   const server = configManager.getServer();
   if (!server) {
-    console.log(colors.failure('No server connected. Use /sync <path>.'));
+    console.log(colors.failure('No server connected. Use sync <path>.'));
     currentState = 'COMMAND';
     promptUser();
     return;
@@ -400,7 +401,7 @@ function enterConsoleMode() {
   }
 
   if (!processManager.getActiveServer(server.name)) {
-    console.log(colors.failure(`Server "${server.name}" is not running. Start it first using /start.`));
+    console.log(colors.failure(`Server "${server.name}" is not running. Start it first using start.`));
     currentState = 'COMMAND';
     promptUser();
     return;
@@ -443,13 +444,13 @@ function handleLogCommand() {
   logViewServer = server.name;
   currentState = 'LOG_VIEW';
   console.log(colors.bold(colors.magenta(`\n--- Live Server Logs: ${server.name} ---`)));
-  console.log(colors.gray('Read-only. Type /back or /exit to return to MCPANEL shell.\n'));
+  console.log(colors.gray('Read-only. Type back or exit to return to MCPANEL shell.\n'));
   if (fs.existsSync(logPath)) {
     const logs = fs.readFileSync(logPath, 'utf-8').split('\n');
     process.stdout.write(logs.slice(-30).join('\n') + '\n');
   }
   if (!running) {
-    console.log(colors.warning('Server is not running yet — lines will appear once you /start it.'));
+    console.log(colors.warning('Server is not running yet — lines will appear once you start it.'));
   }
   processManager.registerConsoleStream(server.name, (data) => {
     process.stdout.write(data);
@@ -464,13 +465,13 @@ function enterTunnelLogView() {
   const logPath = logger.getTunnelLogPath();
   currentState = 'TUNNEL_LOG_VIEW';
   console.log(colors.bold(colors.magenta('\n--- Live Tunnel Logs (playit relay) ---')));
-  console.log(colors.gray('Read-only. Type /back or /exit to return to MCPANEL shell.\n'));
+  console.log(colors.gray('Read-only. Type back or exit to return to MCPANEL shell.\n'));
   if (fs.existsSync(logPath)) {
     const logs = fs.readFileSync(logPath, 'utf-8').split('\n');
     process.stdout.write(logs.slice(-30).join('\n') + '\n');
   }
   if (!playitManager.isAgentRunning()) {
-    console.log(colors.warning('Tunnel agent is not running — start it with /tunnel java or /tunnel bedrock.'));
+    console.log(colors.warning('Tunnel agent is not running — start it with tunnel java or tunnel bedrock.'));
   }
   playitManager.registerTunnelStream((data) => {
     process.stdout.write(data);
@@ -491,11 +492,11 @@ async function handleLine(line: string) {
 
     case 'WIZARD_SYNC_PATH': {
       if (!trimmed) {
-        console.log(colors.failure('Please enter a folder path (or type /exit to quit).'));
+        console.log(colors.failure('Please enter a folder path (or type exit to quit).'));
         promptUser();
         break;
       }
-      if (trimmed === '/exit') {
+      if (trimmed === 'exit' || trimmed === '/exit') {
         process.exit(0);
       }
       try {
@@ -571,15 +572,15 @@ async function handleLine(line: string) {
       break;
 
     case 'LOG_VIEW':
-      // Read-only: only /back or /exit leaves; everything else is ignored.
-      if (trimmed === '/exit' || trimmed === '/back') {
+      // Read-only: only back or exit leaves; everything else is ignored.
+      if (trimmed === 'exit' || trimmed === 'back' || trimmed === '/exit' || trimmed === '/back') {
         exitLogView();
       }
       break;
 
     case 'TUNNEL_LOG_VIEW':
-      // Read-only: only /back or /exit leaves; everything else is ignored.
-      if (trimmed === '/exit' || trimmed === '/back') {
+      // Read-only: only back or exit leaves; everything else is ignored.
+      if (trimmed === 'exit' || trimmed === 'back' || trimmed === '/exit' || trimmed === '/back') {
         exitTunnelLogView();
       }
       break;
@@ -596,21 +597,16 @@ async function handleCommandState(line: string) {
   }
 
   const parts = line.split(/\s+/);
-  const cmd = parts[0].toLowerCase();
+  // Commands have no leading slash, but tolerate one for muscle memory / old history.
+  const cmd = parts[0].toLowerCase().replace(/^\//, '');
   const args = parts.slice(1);
 
-  if (!line.startsWith('/')) {
-    console.log(colors.failure(`Unknown command: "${line}". All commands must start with "/". Type /help for assistance.`));
-    promptUser();
-    return;
-  }
-
   switch (cmd) {
-    case '/help':
+    case 'help':
       console.log(router.getHelpText());
       break;
 
-    case '/clear':
+    case 'clear':
       try {
         fs.writeFileSync(HISTORY_PATH, '', 'utf-8');
         if (rl) {
@@ -625,8 +621,8 @@ async function handleCommandState(line: string) {
       }
       break;
 
-    case '/tray':
-    case '/background': {
+    case 'tray':
+    case 'background': {
       console.log(colors.info('\nPutting MCPANEL in the background...'));
       console.log(colors.gray('The terminal window will be hidden. Use the system tray icon to restore it.'));
       const success = trayManager.hideConsole();
@@ -636,7 +632,7 @@ async function handleCommandState(line: string) {
       break;
     }
 
-    case '/exit':
+    case 'exit':
       logger.info('Exiting MCPANEL manager.');
       playitManager.stopTunnel();
       console.log(colors.cyan('\nStopping the server if running...'));
@@ -650,109 +646,109 @@ async function handleCommandState(line: string) {
       process.exit(0);
       break;
 
-    case '/sync':
+    case 'sync':
       if (args.length === 0) {
-        console.log(colors.failure('Syntax: /sync <path-to-server-folder>'));
+        console.log(colors.failure('Syntax: sync <path-to-server-folder>'));
       } else {
         console.log(router.executeSync(args.join(' ')));
       }
       break;
 
-    case '/info':
-    case '/path':
+    case 'info':
+    case 'path':
       console.log(router.executeInfo());
       break;
 
-    case '/start':
+    case 'start':
       console.log(colors.cyan('Starting server...'));
       console.log(await router.executeStart());
       break;
 
-    case '/stop':
+    case 'stop':
       console.log(colors.cyan('Stopping server...'));
       console.log(await router.executeStop());
       break;
 
-    case '/restart':
+    case 'restart':
       console.log(colors.cyan('Restarting server...'));
       console.log(await router.executeRestart());
       break;
 
-    case '/console':
+    case 'console':
       enterConsoleMode();
       break;
 
-    case '/log':
+    case 'log':
       handleLogCommand();
       break;
 
-    case '/playit':
+    case 'playit':
       enterTunnelLogView();
       break;
 
-    case '/stats':
+    case 'stats':
       console.log(await router.executeStats());
       break;
 
-    case '/folder':
+    case 'folder':
       console.log(router.executeFolder());
       break;
 
-    case '/properties':
+    case 'properties':
       startPropertiesEditor();
       break;
 
-    case '/java':
+    case 'java':
       console.log(router.executeJava(args.length ? args.join(' ') : undefined));
       break;
 
-    case '/update':
+    case 'update':
       console.log(await router.executeUpdate());
       break;
 
-    case '/config':
+    case 'config':
       console.log(router.executeConfig());
       break;
 
-    case '/backup':
+    case 'backup':
       if (args.length === 0) {
-        console.log(colors.failure('Syntax: /backup [create|list|restore]'));
+        console.log(colors.failure('Syntax: backup [create|list|restore]'));
       } else if (args[0].toLowerCase() === 'create') {
         console.log(router.executeBackupCreate());
       } else if (args[0].toLowerCase() === 'list') {
         console.log(router.executeBackupList());
       } else if (args[0].toLowerCase() === 'restore') {
-        if (!args[1]) console.log(colors.failure('Syntax: /backup restore <backup-id>'));
+        if (!args[1]) console.log(colors.failure('Syntax: backup restore <backup-id>'));
         else console.log(router.executeBackupRestore(args[1]));
       } else {
-        console.log(colors.failure('Syntax: /backup [create|list|restore]'));
+        console.log(colors.failure('Syntax: backup [create|list|restore]'));
       }
       break;
 
-    case '/plugins':
+    case 'plugins':
       if (args.length === 0) {
-        console.log(colors.failure('Syntax: /plugins [list|install|remove]'));
+        console.log(colors.failure('Syntax: plugins [list|install|remove]'));
       } else if (args[0].toLowerCase() === 'list') {
         console.log(router.executePluginsList());
       } else if (args[0].toLowerCase() === 'install') {
-        if (!args[1]) console.log(colors.failure('Syntax: /plugins install <plugin-url>'));
+        if (!args[1]) console.log(colors.failure('Syntax: plugins install <plugin-url>'));
         else console.log(await router.executePluginsInstall(args[1]));
       } else if (args[0].toLowerCase() === 'remove') {
-        if (!args[1]) console.log(colors.failure('Syntax: /plugins remove <plugin-name>'));
+        if (!args[1]) console.log(colors.failure('Syntax: plugins remove <plugin-name>'));
         else console.log(router.executePluginsRemove(args[1]));
       } else {
-        console.log(colors.failure('Syntax: /plugins [list|install|remove]'));
+        console.log(colors.failure('Syntax: plugins [list|install|remove]'));
       }
       break;
 
-    case '/setup':
+    case 'setup':
       console.log(await router.executeSetup());
       break;
 
-    case '/tunnel': {
+    case 'tunnel': {
       const sub = (args[0] || '').toLowerCase();
       if (!sub) {
-        console.log(colors.failure('Syntax: /tunnel [java|bedrock|status|log|stop|reset]'));
+        console.log(colors.failure('Syntax: tunnel [java|bedrock|status|log|stop|reset]'));
       } else if (sub === 'java' || sub === 'bedrock') {
         console.log(await router.executeTunnelCreate(sub));
       } else if (sub === 'create') {
@@ -771,7 +767,7 @@ async function handleCommandState(line: string) {
       } else if (sub === 'reset') {
         console.log(await router.executeTunnelReset());
       } else {
-        console.log(colors.failure('Syntax: /tunnel [java|bedrock|status|log|stop|reset]'));
+        console.log(colors.failure('Syntax: tunnel [java|bedrock|status|log|stop|reset]'));
       }
       break;
     }
@@ -781,7 +777,7 @@ async function handleCommandState(line: string) {
       if (suggestions.length) {
         console.log(colors.failure(`Unknown command: "${cmd}".`) + ' ' + colors.gray(`Did you mean: ${suggestions.join(', ')} ?`));
       } else {
-        console.log(colors.failure(`Unknown command: "${cmd}". Type /help for available commands.`));
+        console.log(colors.failure(`Unknown command: "${cmd}". Type help for available commands.`));
       }
       break;
     }
@@ -805,7 +801,7 @@ async function finishStartup() {
     // Continue despite download failure (tunnel will fail until resolved).
   }
 
-  console.log('\nType ' + chalk.cyan('/help') + ' for available commands\n');
+  console.log('\nType ' + chalk.cyan('help') + ' for available commands\n');
   currentState = 'COMMAND';
   promptUser();
 }
@@ -858,14 +854,14 @@ async function main() {
     } else if (currentState === 'LOG_VIEW') {
       exitLogView();
     } else if (currentState === 'WIZARD_SYNC_PATH') {
-      console.log(colors.info('\nType /exit to quit, or enter a server folder path.'));
+      console.log(colors.info('\nType exit to quit, or enter a server folder path.'));
       promptUser();
     } else if (currentState !== 'COMMAND') {
       currentState = 'COMMAND';
       console.log(colors.info('\nCancelled.'));
       promptUser();
     } else {
-      console.log(colors.info('\nType /exit to exit MCPANEL.'));
+      console.log(colors.info('\nType exit to exit MCPANEL.'));
       promptUser();
     }
   });

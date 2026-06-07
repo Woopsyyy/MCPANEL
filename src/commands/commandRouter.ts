@@ -40,45 +40,46 @@ export class CommandRouter {
       colors.bold(colors.cyan('\nMCPANEL Help Menu')),
       colors.gray('──────────────────────────────────────────────'),
       colors.bold(colors.green('Server Commands')),
-      '  /start                       - Start the Minecraft server',
-      '  /stop                        - Stop the server gracefully',
-      '  /restart                     - Restart the server',
-      '  /console                     - Enter the interactive server console',
-      '  /log                         - Stream live server logs in this terminal (read-only)',
-      '  /info                        - Show server path, type, version and status',
-      '  /sync <path>                 - Connect a different server folder',
-      '  /properties                  - Edit server.properties interactively',
+      '  start                        - Start the Minecraft server',
+      '  stop                         - Stop the server gracefully',
+      '  restart                      - Restart the server',
+      '  console                      - Enter the interactive server console',
+      '  log                          - Stream live server logs in this terminal (read-only)',
+      '  info                         - Show server path, type, version and status',
+      '  sync <path>                  - Connect a different server folder',
+      '  properties                   - Edit server.properties interactively',
       '',
       colors.bold(colors.green('Tunnel Commands (Playit.gg)')),
-      '  /setup                       - One-time Playit account claim (browser approval)',
-      '  /tunnel java                 - Auto-create & start a Java tunnel, returns address',
-      '  /tunnel bedrock              - Auto-create & start a Bedrock tunnel, returns address',
-      '  /tunnel status               - Check tunnel status, address and latency',
-      '  /tunnel log                  - Stream live playit relay logs in this terminal (read-only)',
-      '  /playit                      - Shortcut for /tunnel log (live playit.gg logs)',
-      '  /tunnel stop                 - Stop the playit tunnel agent',
-      '  /tunnel reset                - Clear saved agent secret (re-claim on next tunnel)',
+      '  setup                        - One-time Playit account claim (browser approval)',
+      '  tunnel java                  - Auto-create & start a Java tunnel, returns address',
+      '  tunnel bedrock               - Auto-create & start a Bedrock tunnel, returns address',
+      '  tunnel status                - Check tunnel status, address and latency',
+      '  tunnel log                   - Stream live playit relay logs in this terminal (read-only)',
+      '  playit                       - Shortcut for tunnel log (live playit.gg logs)',
+      '  tunnel stop                  - Stop the playit tunnel agent',
+      '  tunnel reset                 - Clear saved agent secret (re-claim on next tunnel)',
       '',
       colors.bold(colors.green('Backup Commands')),
-      '  /backup create               - Create a backup ZIP of the server',
-      '  /backup list                 - List all available backups',
-      '  /backup restore <id>         - Restore the server from a backup ID',
+      '  backup create                - Create a backup ZIP of the server',
+      '  backup list                  - List all available backups',
+      '  backup restore <id>          - Restore the server from a backup ID',
       '',
       colors.bold(colors.green('Plugin Commands')),
-      '  /plugins list                - List installed plugins',
-      '  /plugins install <url>       - Download and install a plugin JAR',
-      '  /plugins remove <name>       - Remove an installed plugin',
+      '  plugins list                 - List installed plugins',
+      '  plugins install <url>        - Download and install a plugin JAR',
+      '  plugins remove <name>        - Remove an installed plugin',
       '',
       colors.bold(colors.green('System Commands')),
-      '  /stats                       - System stats + CPU/RAM/disk of the server',
-      '  /java [path]                 - Show/list Java runtimes, or set the one used to launch',
-      '  /folder                      - Open the server folder in the file explorer',
-      '  /tray                        - Run in background, minimize console to system tray',
-      '  /background                  - Synonym for /tray',
-      '  /clear                       - Clear the screen, scrollback and command history',
-      '  /update                      - Check npm for a newer version of MCPANEL',
-      '  /config                      - View active application config.json',
-      '  /exit                        - Close MCPANEL server manager',
+      '  stats                        - System stats + CPU/RAM/disk of the server',
+      '  java [path]                  - Show/list Java runtimes, or set the one used to launch',
+      '  folder                       - Open the server folder in the file explorer',
+      '  tray                         - Run in background, minimize console to system tray',
+      '  background                   - Synonym for tray',
+      '  clear                        - Clear the screen, scrollback and command history',
+      '  update                       - Check npm for a newer version of MCPANEL',
+      '  config                       - View active application config.json',
+      '  help                         - Show this menu',
+      '  exit                         - Close MCPANEL server manager',
       colors.gray('──────────────────────────────────────────────\n')
     ].join('\n');
   }
@@ -107,7 +108,7 @@ export class CommandRouter {
   public executeInfo(): string {
     const server = this.configManager.getServer();
     if (!server) {
-      return colors.failure('No server connected. Use /sync <path> to connect one.');
+      return colors.failure('No server connected. Use sync <path> to connect one.');
     }
 
     const activeInfo = this.processManager.getActiveServer(server.name);
@@ -131,7 +132,7 @@ export class CommandRouter {
   public async executeStart(): Promise<string> {
     const server = this.configManager.getServer();
     if (!server) {
-      return colors.failure('No server connected. Use /sync <path> to connect one.');
+      return colors.failure('No server connected. Use sync <path> to connect one.');
     }
 
     if (this.processManager.getActiveServer(server.name)) {
@@ -160,7 +161,7 @@ export class CommandRouter {
         server.ram,
         this.configManager.getConfig().defaultJavaPath
       );
-      return colors.success(`Server "${server.name}" started. Use /log to watch live logs or /console to enter the console.`);
+      return colors.success(`Server "${server.name}" started. Use log to watch live logs or console to enter the console.`);
     } catch (err: any) {
       return colors.failure(`Failed to start server: ${err.message}`);
     }
@@ -461,7 +462,7 @@ export class CommandRouter {
     // If this says "Not saved", /tunnel will re-claim a new agent every run.
     const hasSecret = !!this.playitManager.getSecret();
     output.push('');
-    output.push(`Agent secret:   ${hasSecret ? colors.green('Saved (will reuse this agent)') : colors.red('Not saved — /tunnel will claim a new agent')}`);
+    output.push(`Agent secret:   ${hasSecret ? colors.green('Saved (will reuse this agent)') : colors.red('Not saved — tunnel will claim a new agent')}`);
     output.push(colors.gray(`Config file:    ${this.configManager.getConfigPath()}`));
 
     output.push('');
@@ -491,7 +492,7 @@ export class CommandRouter {
           lines.push(`  ${colors.green(j.version.padEnd(10))} ${j.path}`);
         }
         lines.push('');
-        lines.push(colors.gray('Switch with: /java <path>'));
+        lines.push(colors.gray('Switch with: java <path>'));
       }
       lines.push('');
       return lines.join('\n');
@@ -503,7 +504,7 @@ export class CommandRouter {
       return colors.failure(`No working Java found at "${cleanPath}".`);
     }
     this.configManager.updateSettings({ defaultJavaPath: cleanPath });
-    return colors.success(`Java set to "${cleanPath}" (version ${info.version}). It will be used on the next /start.`);
+    return colors.success(`Java set to "${cleanPath}" (version ${info.version}). It will be used on the next start.`);
   }
 
   /**
@@ -572,7 +573,7 @@ export class CommandRouter {
       ].join('\n');
     } catch (err: any) {
       if (err.message && err.message.includes('NotAllowedWithReadOnly')) {
-        return colors.failure('The agent secret is read-only. Run /tunnel reset and try again to re-claim it.');
+        return colors.failure('The agent secret is read-only. Run tunnel reset and try again to re-claim it.');
       }
       return colors.failure(`Failed to create tunnel: ${err.message}`);
     }
@@ -585,7 +586,7 @@ export class CommandRouter {
    */
   public async executeSetup(): Promise<string> {
     if (this.playitManager.getSecret()) {
-      return colors.warning('Playit is already set up (agent secret saved). Run /tunnel reset first if you want to re-claim.');
+      return colors.warning('Playit is already set up (agent secret saved). Run tunnel reset first if you want to re-claim.');
     }
 
     try {
@@ -602,7 +603,7 @@ export class CommandRouter {
         },
         onStatus: (msg) => console.log(colors.info(msg)),
       });
-      return colors.success('Playit is set up! You can now run /tunnel java or /tunnel bedrock.');
+      return colors.success('Playit is set up! You can now run tunnel java or tunnel bedrock.');
     } catch (err: any) {
       return colors.failure(`Setup failed: ${err.message}`);
     }

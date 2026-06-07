@@ -250,6 +250,55 @@ export class PlayitManager {
     return tunnels.find((t) => t.proto === proto) || null;
   }
 
+  /**
+   * Reads the server's actual listen port from server.properties so the tunnel
+   * forwards traffic to where the server is really bound. Falls back to the
+   * protocol defaults (Java 25565 / Bedrock 19132) when it can't be determined.
+   */
+  private getLocalPort(type: 'java' | 'bedrock'): number {
+    const fallback = type === 'java' ? 25565 : 19132;
+    try {
+      const server = this.configManager.getServer();
+      if (!server) return fallback;
+      const txt = fs.readFileSync(path.join(server.path, 'server.properties'), 'utf-8');
+      const m = txt.match(/^\s*server-port\s*=\s*(\d{1,5})\s*$/m);
+      if (m) {
+        const p = parseInt(m[1], 10);
+        if (p > 0 && p < 65536) return p;
+      }
+    } catch { /* fall back to default */ }
+    return fallback;
+  }
+
+  /**
+   * Self-healing: if a reused tunnel's origin still points at the wrong local
+   * port (e.g. created when the server used a different server-port, or with the
+   * old hardcoded default), repoint it to the server's current port via the API.
+   * Returns the port the tunnel now forwards to. No-op when already correct.
+   */
+  private async reconcileTunnelPort(tunnel: any, type: 'java' | 'bedrock', secret: string, callbacks: SetupCallbacks = {}): Promise<number> {
+    const desired = this.getLocalPort(type);
+    const current = Number(tunnel?.local_port);
+    const currentIp = tunnel?.local_ip || '127.0.0.1';
+    if (current === desired && currentIp === '127.0.0.1') return desired;
+
+    callbacks.onStatus?.(`Adjusting tunnel to match your server port (${current || '?'} → ${desired})...`);
+    // playit's /tunnels/update requires the full origin: tunnel_id, local_ip,
+    // local_port and the (required) enabled flag. agent_id is intentionally
+    // omitted — sending a different one is rejected (ChangingAgentIdNotAllowed),
+    // and omitting it keeps the tunnel on its current agent.
+    await this.apiPost('/tunnels/update', {
+      tunnel_id: tunnel.id,
+      local_ip: '127.0.0.1',
+      local_port: desired,
+      enabled: tunnel.disabled == null,
+    }, secret);
+    tunnel.local_port = desired;
+    tunnel.local_ip = '127.0.0.1';
+    logger.info(`Reconciled playit tunnel ${tunnel.id} local port ${current} -> ${desired}`);
+    return desired;
+  }
+
   /** Creates a new tunnel via the API (replaces the broken `tunnels prepare` CLI). */
   private async createApiTunnel(type: 'java' | 'bedrock', agentId: string, secret: string): Promise<void> {
     const body = {
@@ -262,7 +311,7 @@ export class PlayitManager {
         data: {
           agent_id: agentId,
           local_ip: '127.0.0.1',
-          local_port: type === 'java' ? 25565 : 19132,
+          local_port: this.getLocalPort(type),
         },
       },
       enabled: true,
@@ -326,12 +375,12 @@ export class PlayitManager {
       if (status === 'UserAccepted') { approved = true; break; }
       if (status === 'UserRejected') {
         this.tunnelStatus.claimUrl = null;
-        throw new Error('Claim was rejected in the browser. Run /setup to try again.');
+        throw new Error('Claim was rejected in the browser. Run setup to try again.');
       }
     }
     if (!approved) {
       this.tunnelStatus.claimUrl = null;
-      throw new Error('Timed out waiting for approval. Open the link, click Approve, then run /setup again.');
+      throw new Error('Timed out waiting for approval. Open the link, click Approve, then run setup again.');
     }
 
     // Exchange the approved code for the 64-char agent secret.
@@ -345,7 +394,7 @@ export class PlayitManager {
     }
     if (!secret) {
       this.tunnelStatus.claimUrl = null;
-      throw new Error('Could not retrieve the agent secret after approval. Run /setup to try again.');
+      throw new Error('Could not retrieve the agent secret after approval. Run setup to try again.');
     }
 
     this.configManager.setPlayitSecret(secret);
@@ -393,7 +442,15 @@ export class PlayitManager {
         tunnel = this.findTunnel(rd, type);
       }
       if (!tunnel) {
-        throw new Error('Tunnel was created but no public address appeared yet. Try /tunnel status shortly.');
+        throw new Error('Tunnel was created but no public address appeared yet. Try tunnel status shortly.');
+      }
+    } else {
+      // Reusing an existing tunnel: make sure it still forwards to the server's
+      // current port, so the user never has to touch port config by hand.
+      try {
+        await this.reconcileTunnelPort(tunnel, type, secret, callbacks);
+      } catch (err: any) {
+        logger.warn(`Could not auto-adjust tunnel port: ${err.message}`);
       }
     }
 
@@ -435,7 +492,7 @@ export class PlayitManager {
     }
     throw new Error(
       `${lastErr?.message || 'AgentVersionTooOld'} — the playit agent did not register in time. ` +
-      `Make sure the server can reach playit.gg, then try /tunnel again.`
+      `Make sure the server can reach playit.gg, then try tunnel again.`
     );
   }
 
