@@ -105,6 +105,10 @@ export class TrayManager {
   private systray: SysTray | null = null;
   private activeHandle: string | null = null;
   private isInitialized = false;
+  // The tray runs a separate native helper over a stdin pipe. If that helper
+  // dies, writes to its pipe raise an async EPIPE. The tray is best-effort, so
+  // this flag lets us stop writing and degrade to CLI-only instead of crashing.
+  private trayAlive = false;
 
   // Menu item state tracking
   private itemShow = { title: 'Open Console', tooltip: 'Restore terminal window', enabled: true };
@@ -128,14 +132,24 @@ export class TrayManager {
     if (this.isInitialized) return true;
 
     const osType = detectOS();
-    const iconFile = osType === 'Windows' || osType === 'WSL'
+    const iconCandidate = osType === 'Windows' || osType === 'WSL'
       ? path.join(APP_ROOT, 'assets', 'logo.ico')
       : path.join(APP_ROOT, 'assets', 'logo.png');
+    // systray2 only base64-encodes the icon if the file exists; otherwise it
+    // ships the raw path, which the native helper can't decode and then exits.
+    // Omit a missing icon so the helper stays alive (CLI works without one).
+    const iconFile = fs.existsSync(iconCandidate) ? iconCandidate : undefined;
+    if (!iconFile) {
+      logger.warn(`Tray icon not found at ${iconCandidate}; starting tray without an icon.`);
+    }
 
     try {
       this.systray = new WSLSysTray({
         menu: {
-          icon: iconFile,
+          // May be undefined when the icon file is absent; systray2 tolerates
+          // this at runtime (it pathExists-checks before encoding) — the cast
+          // just satisfies the `Conf` type, which declares icon as required.
+          icon: iconFile as string,
           title: 'MCPANEL',
           tooltip: 'MCPANEL Server Manager',
           items: [
@@ -162,6 +176,8 @@ export class TrayManager {
 
       await this.systray.ready();
       this.isInitialized = true;
+      this.trayAlive = true;
+      this.attachTrayGuards();
       logger.info('System tray initialized successfully.');
       this.updateMenu();
       return true;
@@ -174,11 +190,34 @@ export class TrayManager {
   }
 
   /**
+   * Attaches error/exit listeners to the native tray helper so a dead helper
+   * (e.g. EPIPE when writing to its closed stdin) degrades to CLI-only mode
+   * instead of throwing an unhandled 'error' event that crashes the process.
+   */
+  private attachTrayGuards(): void {
+    const proc: any = (this.systray as any)?._process;
+    if (!proc) return;
+    const onDead = (err?: any) => {
+      if (this.trayAlive) {
+        const detail = err ? ` (${err.code || err.message})` : '';
+        logger.warn(`System tray helper stopped; continuing in CLI-only mode.${detail}`);
+      }
+      this.trayAlive = false;
+    };
+    // The load-bearing handler: without an 'error' listener, an EPIPE on the
+    // helper's stdin is emitted as an unhandled 'error' event and crashes Node.
+    proc.stdin?.on('error', onDead);
+    proc.on('error', onDead);
+    proc.on('exit', () => onDead());
+    proc.on('close', () => onDead());
+  }
+
+  /**
    * Dynamically updates the titles and states of the tray menu items
    */
   public updateMenu() {
     const tray = this.systray;
-    if (!tray || !this.isInitialized) return;
+    if (!tray || !this.isInitialized || !this.trayAlive) return;
 
     const server = this.configManager.getServer();
     const running = server ? !!this.processManager.getActiveServer(server.name) : false;
