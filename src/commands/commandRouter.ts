@@ -454,6 +454,13 @@ export class CommandRouter {
       output.push(`\n🎮 Connect at: ${colors.bold(colors.green(`${status.address}:${status.port}`))}`);
     }
 
+    // Persistence diagnostics: whether the agent is claimed/saved, and where.
+    // If this says "Not saved", /tunnel will re-claim a new agent every run.
+    const hasSecret = !!this.playitManager.getSecret();
+    output.push('');
+    output.push(`Agent secret:   ${hasSecret ? colors.green('Saved (will reuse this agent)') : colors.red('Not saved — /tunnel will claim a new agent')}`);
+    output.push(colors.gray(`Config file:    ${this.configManager.getConfigPath()}`));
+
     output.push('');
     return output.join('\n');
   }

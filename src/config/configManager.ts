@@ -184,10 +184,18 @@ export class ConfigManager {
    */
   public save(): void {
     try {
+      // Defensively recreate the data dir — if it's missing at write time the
+      // write throws ENOENT and (previously) the secret was lost silently.
+      fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
       fs.writeFileSync(CONFIG_PATH, JSON.stringify(this.config, null, 2), 'utf-8');
     } catch (error) {
       console.error('❌ Failed to save configuration file:', error);
     }
+  }
+
+  /** Absolute path of the config file on disk (for status/diagnostics). */
+  public getConfigPath(): string {
+    return CONFIG_PATH;
   }
 
   /**
@@ -226,6 +234,25 @@ export class ConfigManager {
   public setPlayitSecret(secret: string): void {
     this.config.playitSettings.secret = secret;
     this.save();
+    // The whole point of claiming once is that the secret survives a restart.
+    // If it didn't reach disk, fail loudly now instead of silently re-claiming
+    // a brand-new agent (and orphaning the old one) on the next launch.
+    if (!this.isPlayitSecretPersisted(secret)) {
+      throw new Error(
+        `Could not persist the playit agent secret to ${CONFIG_PATH}. ` +
+        `Check that the folder exists and is writable, then run /tunnel again.`
+      );
+    }
+  }
+
+  /** Confirms the agent secret is readable back from disk (not just in memory). */
+  private isPlayitSecretPersisted(secret: string): boolean {
+    try {
+      const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+      return onDisk?.playitSettings?.secret === secret;
+    } catch {
+      return false;
+    }
   }
 
   /**
