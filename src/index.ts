@@ -182,11 +182,58 @@ const SUBCOMMANDS: { [cmd: string]: string[] } = {
   'plugins': ['list', 'install', 'remove'],
 };
 
-/** Returns top-level commands that share a prefix with the typed token. */
+/** Classic edit distance — powers typo-tolerant "did you mean" suggestions. */
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp = Array.from({ length: m + 1 }, (_, i) => i);
+  for (let j = 1; j <= n; j++) {
+    let prev = dp[0];
+    dp[0] = j;
+    for (let i = 1; i <= m; i++) {
+      const tmp = dp[i];
+      dp[i] = Math.min(
+        dp[i] + 1,                                  // deletion
+        dp[i - 1] + 1,                              // insertion
+        prev + (a[i - 1] === b[j - 1] ? 0 : 1)      // substitution
+      );
+      prev = tmp;
+    }
+  }
+  return dp[m];
+}
+
+/**
+ * Suggests top-level commands for an unknown token. Tries prefix matches first
+ * (e.g. "cl" -> "clear"); if none, falls back to edit distance so typos like
+ * "claer" or "exti" still resolve to "clear" / "exit".
+ */
 function suggestCommands(token: string): string[] {
   if (!token) return [];
   const tops = Array.from(new Set(COMMAND_LIST.map(c => c.split(' ')[0])));
-  return tops.filter(c => c.startsWith(token) && c !== token);
+  const prefix = tops.filter(c => c.startsWith(token) && c !== token);
+  if (prefix.length) return prefix;
+
+  const maxDist = token.length <= 4 ? 2 : 3;
+  return tops
+    .map(c => ({ c, d: levenshtein(token, c) }))
+    .filter(x => x.d <= maxDist && x.c !== token)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 3)
+    .map(x => x.c);
+}
+
+/**
+ * Best full-command match for an inline "ghost" autosuggestion (fish/Claude
+ * style). Returns the whole command when the current line is a strict prefix of
+ * exactly the next thing to type, else '' for no suggestion.
+ */
+function ghostSuggestion(line: string): string {
+  if (!line || line !== line.trimStart()) return '';
+  const lower = line.toLowerCase();
+  const match = COMMAND_LIST.find(c => c.startsWith(lower) && c.length > line.length);
+  return match || '';
 }
 
 /**
@@ -217,6 +264,71 @@ function completer(line: string): [string[], string] {
   }
 
   return [[], line];
+}
+
+// Tracks the dim ghost-suffix currently drawn after the cursor (if any), so it
+// can be erased before readline redraws or the line is submitted.
+let ghostShown = '';
+
+/** Erases the on-screen ghost suffix (cursor is assumed to sit just before it). */
+function clearGhost() {
+  if (ghostShown) {
+    process.stdout.write('\x1b[K'); // clear from cursor to end of line
+    ghostShown = '';
+  }
+}
+
+/**
+ * Draws the inline ghost autosuggestion for the current readline buffer. Only
+ * shows in COMMAND state, on a TTY, when the cursor is at the end of the line.
+ * The suffix is printed dim, then the cursor is moved back so typing continues
+ * over it — exactly the "press → to accept" feel of fish/Claude shells.
+ */
+function renderGhost() {
+  if (!process.stdout.isTTY || currentState !== 'COMMAND') {
+    return;
+  }
+  const line = rl.line;
+  if (rl.cursor !== line.length) {
+    clearGhost();
+    return;
+  }
+  const sugg = ghostSuggestion(line);
+  if (!sugg) {
+    clearGhost();
+    return;
+  }
+  const remainder = sugg.slice(line.length);
+  process.stdout.write('\x1b[K');                              // wipe stale ghost
+  process.stdout.write(`\x1b[90m${remainder}\x1b[0m`);         // dim ghost text
+  process.stdout.write(`\x1b[${remainder.length}D`);          // cursor back to real position
+  ghostShown = remainder;
+}
+
+/**
+ * Wires inline ghost autosuggestions onto the readline keypress stream. Uses a
+ * prepended listener so the stale ghost is erased BEFORE readline reprocesses
+ * the key (otherwise Enter would orphan the dim text on the submitted line).
+ */
+function attachGhostSuggestions() {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+  readline.emitKeypressEvents(process.stdin);
+
+  process.stdin.prependListener('keypress', (_str: string, key: any) => {
+    // Erase any existing ghost first; the cursor is still at the line end here.
+    clearGhost();
+
+    if (key && currentState === 'COMMAND' && key.name === 'right' && rl.cursor === rl.line.length) {
+      // Right arrow at end of line accepts the suggestion.
+      const sugg = ghostSuggestion(rl.line);
+      if (sugg && sugg.length > rl.line.length) {
+        rl.write(sugg.slice(rl.line.length)); // insert remainder as if typed
+      }
+    }
+
+    // Re-draw the ghost after readline has finished handling this key.
+    setImmediate(renderGhost);
+  });
 }
 
 /**
@@ -886,6 +998,7 @@ async function main() {
   });
 
   loadHistory();
+  attachGhostSuggestions();
 
   rl.on('line', (line) => {
     handleLine(line).catch((err) => {
