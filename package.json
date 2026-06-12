@@ -16,7 +16,7 @@
     "build:icons": "node scripts/build-icons.js",
     "build:dashboard": "npm --prefix dashboard/client run build",
     "dashboard:install": "npm --prefix dashboard/client install",
-    "postinstall": "npm run dashboard:install",
+    "postinstall": "node scripts/postinstall.js",
     "prebuild": "node scripts/build-icons.js",
     "build": "tsc && npm run build:dashboard",
     "postbuild": "node -e \"try{require('fs').chmodSync('dist/index.js',0o755)}catch(e){}\"",
