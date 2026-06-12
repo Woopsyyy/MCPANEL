@@ -5,6 +5,7 @@ import * as path from 'path';
 export interface BackupSettings {
   enabled: boolean;
   intervalHours: number;
+  maxBackups: number; // retention: keep only the newest N backups per server
 }
 
 export interface PlayitSettings {
@@ -20,6 +21,8 @@ export interface ServerMetadata {
   version: string;
   software: string; // Paper, Fabric, Purpur, Vanilla, etc.
   ram: string;
+  displayName?: string; // friendly name shown in the dashboard (folder is never renamed)
+  displayIcon?: string; // small data-URL profile picture shown in the dashboard
 }
 
 export interface AppConfig {
@@ -31,6 +34,7 @@ export interface AppConfig {
   // syncs a folder path on first launch.
   server: ServerMetadata | null;
   externalBackups: string[];
+  backupLocation?: string; // where backups are written (default ~/.mcpanel/backups)
 }
 
 import * as os from 'os';
@@ -50,6 +54,7 @@ const DEFAULT_CONFIG: AppConfig = {
   autoBackupSettings: {
     enabled: false,
     intervalHours: 24,
+    maxBackups: 5,
   },
   playitSettings: {},
   server: null,
@@ -107,6 +112,8 @@ export class ConfigManager {
           version: s.version || 'Unknown',
           software: s.software || 'Vanilla',
           ram: s.ram || parsed.defaultRam || '4G',
+          displayName: s.displayName,
+          displayIcon: s.displayIcon,
         };
       } else if (parsed.servers && typeof parsed.servers === 'object') {
         const first = Object.values(parsed.servers)[0] as any;
@@ -117,18 +124,25 @@ export class ConfigManager {
             version: first.version || 'Unknown',
             software: first.software || 'Vanilla',
             ram: first.ram || parsed.defaultRam || '4G',
+            displayName: first.displayName,
           };
         }
       }
 
       // Ensure key sections are initialized
+      const ab = parsed.autoBackupSettings || {};
       this.config = {
         defaultJavaPath: parsed.defaultJavaPath || 'java',
         defaultRam: parsed.defaultRam || '4G',
-        autoBackupSettings: parsed.autoBackupSettings || { enabled: false, intervalHours: 24 },
+        autoBackupSettings: {
+          enabled: !!ab.enabled,
+          intervalHours: ab.intervalHours || 24,
+          maxBackups: ab.maxBackups || 5,
+        },
         playitSettings: parsed.playitSettings || {},
         server,
         externalBackups: parsed.externalBackups || [],
+        backupLocation: parsed.backupLocation || undefined,
       };
 
       // Recover an already-claimed playit secret from the pre-2.0 config
@@ -226,6 +240,17 @@ export class ConfigManager {
    */
   public getServer(): ServerMetadata | null {
     return this.config.server;
+  }
+
+  /** Absolute directory where backups are written (defaults to ~/.mcpanel/backups). */
+  public getBackupLocation(): string {
+    return this.config.backupLocation || path.join(APP_DATA_DIR, 'backups');
+  }
+
+  /** Sets the backup destination directory and persists it. */
+  public setBackupLocation(dir: string): void {
+    this.config.backupLocation = path.resolve(dir);
+    this.save();
   }
 
   /**

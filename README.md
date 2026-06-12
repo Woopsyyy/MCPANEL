@@ -140,6 +140,7 @@ Commands are typed **without a leading slash** — just `start`, `tunnel java`, 
 | `plugins list` · `install <url>` · `remove <name>` | Manage plugins |
 | `tunnel java` · `bedrock` · `status` · `log` · `stop` · `reset` | Playit.gg tunnels |
 | `playit` | Stream live playit.gg relay logs (shortcut for `tunnel log`) |
+| `dashboard` · `stop` · `status` | Launch the **realtime web dashboard** in your browser |
 | `config` · `clear` · `help` · `exit` | Utilities |
 
 Type `help` inside MCPANEL for the full menu, and use **Tab** for autocompletion.
@@ -155,6 +156,13 @@ Type `help` inside MCPANEL for the full menu, and use **Tab** for autocompletion
 - **`log` in a new window.** On WSL it opens via the Windows console; on Linux it uses your
   terminal emulator; on macOS it uses Terminal. If none is available it falls back to an
   in-place read-only view (`back` to exit).
+- **Web dashboard.** `dashboard` launches a local React dashboard (served by an in-process
+  Fastify + WebSocket server) and opens it in your browser. It mirrors the live server in
+  real time — who's online, installed mods/plugins, Playit tunnels, the console (read **and**
+  send), Playit relay logs, and backups. It binds to `127.0.0.1` only and is protected by a
+  one-time token baked into the URL, so nothing else on your machine or network can drive your
+  server. The dashboard requires your Playit.gg account to be linked (it runs the one-time
+  claim first if needed). `dashboard stop` shuts it down; the terminal stays usable throughout.
 
 ---
 

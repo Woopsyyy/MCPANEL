@@ -11,8 +11,10 @@ import { ServerManager } from './managers/serverManager';
 import { BackupManager } from './managers/backupManager';
 import { PlayitManager } from './managers/playitManager';
 import { CommandRouter } from './commands/commandRouter';
+import { DashboardServer } from './dashboard/dashboardServer';
+import { BackupScheduler } from './dashboard/backupScheduler';
 import * as colors from './utils/colors';
-import { detectOS, checkJava, findInstalledJavas, installTemurin25 } from './utils/helpers';
+import { detectOS, checkJava, findInstalledJavas, installTemurin25, openInBrowser } from './utils/helpers';
 import { checkForUpdate } from './services/updateChecker';
 import { logger } from './utils/logger';
 import { TrayManager } from './managers/trayManager';
@@ -33,6 +35,18 @@ const router = new CommandRouter(
   serverManager,
   backupManager,
   playitManager
+);
+
+const backupScheduler = new BackupScheduler(configManager, processManager, backupManager);
+
+const dashboardServer = new DashboardServer(
+  configManager,
+  processManager,
+  serverManager,
+  backupManager,
+  playitManager,
+  router,
+  backupScheduler
 );
 
 const HISTORY_PATH = path.join(APP_DATA_DIR, 'logs', '.history');
@@ -172,6 +186,7 @@ const COMMAND_LIST = [
   'setup',
   'tunnel java', 'tunnel bedrock', 'tunnel status', 'tunnel log', 'tunnel stop', 'tunnel reset',
   'playit',
+  'dashboard', 'dashboard stop', 'dashboard status',
   'config', 'clear', 'update', 'tray', 'background', 'exit'
 ];
 
@@ -180,6 +195,7 @@ const SUBCOMMANDS: { [cmd: string]: string[] } = {
   'tunnel': ['java', 'bedrock', 'status', 'log', 'stop', 'reset'],
   'backup': ['create', 'list', 'restore'],
   'plugins': ['list', 'install', 'remove'],
+  'dashboard': ['stop', 'status'],
 };
 
 /** Classic edit distance — powers typo-tolerant "did you mean" suggestions. */
@@ -606,6 +622,80 @@ function enterTunnelLogView() {
 }
 
 /**
+ * dashboard / dashboard stop / dashboard status — launches (or stops) the local
+ * web dashboard. Requires a claimed playit agent secret (a real playit.gg
+ * account, not a guest tunnel) so the tunnel features are always account-backed.
+ */
+async function handleDashboardCommand(sub: string) {
+  if (sub === 'stop') {
+    if (!dashboardServer.isRunning()) {
+      console.log(colors.warning('Dashboard is not running.'));
+      return;
+    }
+    await dashboardServer.stop();
+    console.log(colors.success('Dashboard stopped.'));
+    return;
+  }
+
+  if (sub === 'status') {
+    const handle = dashboardServer.getHandle();
+    console.log(handle
+      ? colors.success(`Dashboard running at ${colors.bold(handle.url)}`)
+      : colors.warning('Dashboard is not running. Type dashboard to launch it.'));
+    return;
+  }
+
+  // start / open (default)
+  if (dashboardServer.isRunning()) {
+    const handle = dashboardServer.getHandle()!;
+    openInBrowser(handle.url);
+    console.log(colors.success(`Dashboard already running — reopening ${colors.bold(handle.url)}`));
+    return;
+  }
+
+  const server = configManager.getServer();
+  if (!server) {
+    console.log(colors.failure('No server connected. Use sync <path> to connect one first.'));
+    return;
+  }
+
+  // Account gate: ensure the playit agent is claimed to a real account.
+  if (!playitManager.getSecret()) {
+    console.log(colors.cyan('The dashboard needs your playit.gg account linked (one-time browser approval)...'));
+    try {
+      await playitManager.ensureSecret({
+        onClaimUrl: (url) => {
+          const opened = openInBrowser(url);
+          console.log(`\n🔗 ${colors.bold('Approve the agent in your browser to link your playit.gg account.')}`);
+          if (opened) {
+            console.log(colors.gray('Your browser was opened automatically — sign in and click Approve.'));
+          } else {
+            console.log(colors.gray('Open this link, sign in (free account), and click Approve:'));
+          }
+          console.log(colors.underline(colors.cyan(url)));
+        },
+        onStatus: (msg) => console.log(colors.info(msg)),
+      });
+    } catch (err: any) {
+      console.log(colors.failure(`Could not link playit account: ${err.message}`));
+      console.log(colors.gray('The dashboard will not launch without an account-backed tunnel.'));
+      return;
+    }
+  }
+
+  try {
+    console.log(colors.cyan('Starting the MCPANEL dashboard...'));
+    const handle = await dashboardServer.start();
+    openInBrowser(handle.url);
+    console.log(colors.success(`Dashboard is live at ${colors.bold(handle.url)}`));
+    console.log(colors.gray('It opened in your browser automatically. Keep MCPANEL running while you use it.'));
+    console.log(colors.gray('Type dashboard stop to shut it down, or dashboard to reopen the tab.'));
+  } catch (err: any) {
+    console.log(colors.failure(`Failed to start dashboard: ${err.message}`));
+  }
+}
+
+/**
  * Command line loop orchestrator
  */
 async function handleLine(line: string) {
@@ -786,6 +876,8 @@ async function handleCommandState(line: string) {
 
     case 'exit':
       logger.info('Exiting MCPANEL manager.');
+      backupScheduler.stop();
+      await dashboardServer.stop();
       playitManager.stopTunnel();
       console.log(colors.cyan('\nStopping the server if running...'));
       {
@@ -842,6 +934,12 @@ async function handleCommandState(line: string) {
 
     case 'playit':
       enterTunnelLogView();
+      break;
+
+    case 'dashboard':
+    case 'panel':
+    case 'web':
+      await handleDashboardCommand((args[0] || '').toLowerCase());
       break;
 
     case 'stats':
@@ -991,6 +1089,10 @@ async function main() {
   // Start the background system tray loop
   await trayManager.start();
 
+  // Resume automatic backups from saved settings (runs whether or not the
+  // dashboard is open, for as long as MCPANEL is running).
+  backupScheduler.start();
+
   rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -999,6 +1101,32 @@ async function main() {
 
   loadHistory();
   attachGhostSuggestions();
+
+  // Realtime: when the server or tunnel state changes — including from the web
+  // dashboard — redraw the CLI status line so it's never stale. The CLI and the
+  // dashboard share the same manager instances, so both reflect the same state.
+  const announceStateLine = (msg: string) => {
+    if (currentState !== 'COMMAND' || !process.stdout.isTTY) return;
+    clearGhost();
+    readline.cursorTo(process.stdout, 0);
+    readline.clearLine(process.stdout, 0);
+    console.log(colors.info(msg));
+    console.log(getStatusBar());
+    rl.prompt(true); // re-render prompt, preserving any typed input
+  };
+
+  let lastRunning = false;
+  processManager.onStateChange(() => {
+    const srv = configManager.getServer();
+    const running = srv ? !!processManager.getActiveServer(srv.name) : false;
+    if (running === lastRunning) return; // ignore intermediate spawn→running churn
+    lastRunning = running;
+    announceStateLine(`Server is now ${running ? 'Running' : 'Offline'}.`);
+  });
+
+  playitManager.onStatusChange(() => {
+    announceStateLine(`Tunnel is now ${playitManager.getStatus().status}.`);
+  });
 
   rl.on('line', (line) => {
     handleLine(line).catch((err) => {

@@ -14,8 +14,10 @@
   ],
   "scripts": {
     "build:icons": "node scripts/build-icons.js",
+    "build:dashboard": "npm --prefix dashboard/client run build",
+    "dashboard:install": "npm --prefix dashboard/client install",
     "prebuild": "node scripts/build-icons.js",
-    "build": "tsc",
+    "build": "tsc && npm run build:dashboard",
     "postbuild": "node -e \"try{require('fs').chmodSync('dist/index.js',0o755)}catch(e){}\"",
     "start": "ts-node src/index.ts",
     "dev": "ts-node src/index.ts",
@@ -48,8 +50,12 @@
     "url": "https://github.com/Woopsyyy/MCPANEL/issues"
   },
   "dependencies": {
+    "@fastify/multipart": "^8.3.1",
+    "@fastify/static": "^7.0.4",
+    "@fastify/websocket": "^10.0.1",
     "adm-zip": "^0.5.12",
     "chalk": "^4.1.2",
+    "fastify": "^4.29.1",
     "figlet": "^1.11.0",
     "pidusage": "^4.0.1",
     "systray2": "^2.1.4"
@@ -59,6 +65,7 @@
     "@types/figlet": "^1.7.0",
     "@types/node": "^20.12.12",
     "@types/pidusage": "^2.0.5",
+    "@types/ws": "^8.18.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   },

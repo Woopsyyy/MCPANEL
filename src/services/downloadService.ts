@@ -16,10 +16,13 @@ export function downloadFile(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     https.get(url, { headers: { 'User-Agent': 'mcpanel-agent' } }, (res) => {
-      // Handle redirects
-      if ([301, 302, 307, 308].includes(res.statusCode || 0)) {
+      // Handle redirects — resolve the Location against the current URL so a
+      // RELATIVE Location header (e.g. "/v2/.../downloads/fabric") still works.
+      if ([301, 302, 303, 307, 308].includes(res.statusCode || 0)) {
         if (res.headers.location) {
-          downloadFile(res.headers.location, destPath, onProgress).then(resolve).catch(reject);
+          res.resume(); // drain the redirect body
+          const next = new URL(res.headers.location, url).toString();
+          downloadFile(next, destPath, onProgress).then(resolve).catch(reject);
           return;
         }
       }

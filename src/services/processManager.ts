@@ -17,6 +17,24 @@ export interface ActiveServer {
 export class ProcessManager {
   private activeServers: Map<string, ActiveServer> = new Map();
   private consoleCallbacks: Map<string, (data: string) => void> = new Map();
+  // Fan-out subscribers (e.g. the web dashboard) that receive the same console
+  // output as the terminal view, independently and without replacing each other.
+  private consoleSubscribers: Map<string, Set<(data: string) => void>> = new Map();
+  // Listeners notified whenever a server starts running or stops, so the CLI
+  // status line and the dashboard can update in realtime.
+  private stateListeners: Set<() => void> = new Set();
+
+  /** Subscribes to start/stop state changes. Returns an unsubscribe function. */
+  public onStateChange(cb: () => void): () => void {
+    this.stateListeners.add(cb);
+    return () => { this.stateListeners.delete(cb); };
+  }
+
+  private notifyState(): void {
+    for (const cb of this.stateListeners) {
+      try { cb(); } catch { /* a broken listener must not break process handling */ }
+    }
+  }
 
   /**
    * Starts a server process.
@@ -75,6 +93,7 @@ export class ProcessManager {
       };
 
       this.activeServers.set(key, serverInfo);
+      this.notifyState(); // server is now spawning — update CLI + dashboard immediately
 
       // Clean/reset console log on start
       const logFilePath = logger.getServerLogPath(name);
@@ -101,6 +120,7 @@ export class ProcessManager {
           ) {
             serverInfo.status = 'Running';
             logger.logServerStart(name, `Server fully loaded (PID: ${child.pid})`);
+            this.notifyState();
           }
         }
 
@@ -109,17 +129,19 @@ export class ProcessManager {
         if (callback) {
           callback(chunk);
         }
+        this.emitToSubscribers(key, chunk);
       });
 
       // Handle stderr
       child.stderr.on('data', (data: Buffer) => {
         const chunk = data.toString();
         logger.writeServerConsoleLog(name, `[STDERR] ${chunk}`);
-        
+
         const callback = this.consoleCallbacks.get(key);
         if (callback) {
           callback(`[STDERR] ${chunk}`);
         }
+        this.emitToSubscribers(key, `[STDERR] ${chunk}`);
       });
 
       // Handle process exit
@@ -127,6 +149,7 @@ export class ProcessManager {
         logger.logServerStop(name, `Process exited with code ${code}`);
         this.activeServers.delete(key);
         this.consoleCallbacks.delete(key);
+        this.notifyState();
       });
 
       child.on('error', (err) => {
@@ -228,6 +251,38 @@ export class ProcessManager {
    */
   public unregisterConsoleStream(name: string): void {
     this.consoleCallbacks.delete(name.toLowerCase());
+  }
+
+  /**
+   * Subscribes a fan-out consumer (e.g. the web dashboard) to a server's live
+   * console output. Unlike registerConsoleStream this supports many independent
+   * subscribers and does not replace the terminal's own console view. Returns an
+   * unsubscribe function.
+   */
+  public subscribeConsole(name: string, callback: (data: string) => void): () => void {
+    const key = name.toLowerCase();
+    let set = this.consoleSubscribers.get(key);
+    if (!set) {
+      set = new Set();
+      this.consoleSubscribers.set(key, set);
+    }
+    set.add(callback);
+    return () => {
+      const current = this.consoleSubscribers.get(key);
+      if (current) {
+        current.delete(callback);
+        if (current.size === 0) this.consoleSubscribers.delete(key);
+      }
+    };
+  }
+
+  /** Pushes a console chunk to every fan-out subscriber for a server. */
+  private emitToSubscribers(key: string, chunk: string): void {
+    const set = this.consoleSubscribers.get(key);
+    if (!set) return;
+    for (const cb of set) {
+      try { cb(chunk); } catch { /* a broken subscriber must not break the stream */ }
+    }
   }
 
   /**

@@ -344,24 +344,52 @@ export interface SystemStats {
   uptimeSeconds: number;
 }
 
+// Previous aggregate CPU sample, for the idle/total delta in sampleHostCpu().
+let prevCpuSample: { idle: number; total: number } | null = null;
+
+/**
+ * Cross-platform host CPU usage (%). Uses os.cpus() idle/total deltas between
+ * calls — unlike os.loadavg(), which always returns 0 on Windows. The first call
+ * primes the baseline and returns 0; subsequent calls return the real delta.
+ */
+export function sampleHostCpu(): number {
+  let idle = 0;
+  let total = 0;
+  for (const cpu of os.cpus()) {
+    for (const t of Object.values(cpu.times)) total += t;
+    idle += cpu.times.idle;
+  }
+  if (!prevCpuSample) { prevCpuSample = { idle, total }; return 0; }
+  const idleDiff = idle - prevCpuSample.idle;
+  const totalDiff = total - prevCpuSample.total;
+  prevCpuSample = { idle, total };
+  if (totalDiff <= 0) return 0;
+  const usage = (1 - idleDiff / totalDiff) * 100;
+  return parseFloat(Math.max(0, Math.min(100, usage)).toFixed(1));
+}
+
+/** Free/total bytes on the filesystem holding `dir`, or null if unavailable. */
+export function getDiskInfo(dir: string): { freeBytes: number; totalBytes: number } | null {
+  try {
+    const st = fs.statfsSync(dir);
+    return { freeBytes: st.bavail * st.bsize, totalBytes: st.blocks * st.bsize };
+  } catch {
+    return null;
+  }
+}
+
 export function getSystemStats(): SystemStats {
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
   const usedMem = totalMem - freeMem;
-  
+
   const totalMemGB = parseFloat((totalMem / (1024 * 1024 * 1024)).toFixed(2));
   const freeMemGB = parseFloat((freeMem / (1024 * 1024 * 1024)).toFixed(2));
   const usedMemGB = parseFloat((usedMem / (1024 * 1024 * 1024)).toFixed(2));
   const memUsagePct = parseFloat(((usedMem / totalMem) * 100).toFixed(1));
-  
-  // Calculate average CPU load percentage from load average over the last 1 min
-  const loadAvg = os.loadavg()[0]; // 1-minute load average
-  const cpuCount = os.cpus().length;
-  // load avg / cpus * 100 capped at 100 or actual representation
-  const cpuUsage = parseFloat(Math.min((loadAvg / cpuCount) * 100, 100).toFixed(1));
-  
+
   return {
-    cpuUsage: isNaN(cpuUsage) ? 0 : cpuUsage,
+    cpuUsage: sampleHostCpu(),
     totalMemGB,
     freeMemGB,
     usedMemGB,

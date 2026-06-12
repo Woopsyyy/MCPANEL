@@ -42,6 +42,27 @@ export class PlayitManager {
   private tunnelStatus: TunnelStatus;
   // Optional live consumer of relay output, used by the inline `/tunnel log` view.
   private tunnelLogCallback: ((data: string) => void) | null = null;
+  // Fan-out subscribers (e.g. the web dashboard) for the same relay output.
+  private tunnelLogSubscribers: Set<(data: string) => void> = new Set();
+  // Listeners notified when the tunnel status changes (Online/Connecting/Offline)
+  // so the CLI status line and the dashboard stay in sync in realtime.
+  private statusListeners: Set<() => void> = new Set();
+  private lastNotifiedStatus: string | null = null;
+
+  /** Subscribes to tunnel status changes. Returns an unsubscribe function. */
+  public onStatusChange(cb: () => void): () => void {
+    this.statusListeners.add(cb);
+    return () => { this.statusListeners.delete(cb); };
+  }
+
+  /** Fires listeners only when the status actually changed. */
+  private notifyStatusChange(): void {
+    if (this.tunnelStatus.status === this.lastNotifiedStatus) return;
+    this.lastNotifiedStatus = this.tunnelStatus.status;
+    for (const cb of this.statusListeners) {
+      try { cb(); } catch { /* a broken listener must not break the relay */ }
+    }
+  }
 
   constructor(configManager: ConfigManager) {
     this.configManager = configManager;
@@ -451,6 +472,7 @@ export class PlayitManager {
 
     this.tunnelStatus.status = 'Connecting';
     this.tunnelStatus.type = type;
+    this.notifyStatusChange();
 
     // Resolve a secret playit actually accepts. A saved secret can be revoked
     // (agent removed from the account), in which case this re-claims instead of
@@ -494,6 +516,7 @@ export class PlayitManager {
     this.configManager.updatePlayitTunnel({ tunnelAddress: address, tunnelPort: Number(port) });
 
     this.tunnelStatus.status = 'Online';
+    this.notifyStatusChange();
     return this.tunnelStatus;
   }
 
@@ -553,21 +576,25 @@ export class PlayitManager {
         logger.logTunnel(`[stdout] ${chunk.trim()}`);
         this.parsePlayitOutput(chunk);
         this.tunnelLogCallback?.(chunk);
+        this.emitTunnelLog(chunk);
       });
       this.playitProcess.stderr?.on('data', (d: Buffer) => {
         const chunk = stripAnsi(d.toString());
         logger.logTunnel(`[stderr] ${chunk.trim()}`);
         this.parsePlayitOutput(chunk);
         this.tunnelLogCallback?.(chunk);
+        this.emitTunnelLog(chunk);
       });
       this.playitProcess.on('close', (code) => {
         logger.logTunnel(`Playit relay exited with code ${code}`);
         this.playitProcess = null;
         this.tunnelStatus = this.offlineStatus();
+        this.notifyStatusChange();
       });
       this.playitProcess.on('error', (err) => {
         logger.error('Playit relay process error', err);
         this.tunnelStatus.status = 'Offline';
+        this.notifyStatusChange();
       });
 
       // Give the daemon a moment to register, then continue.
@@ -589,6 +616,7 @@ export class PlayitManager {
       stopped = true;
     }
     this.tunnelStatus = this.offlineStatus();
+    this.notifyStatusChange();
     return stopped;
   }
 
@@ -611,6 +639,76 @@ export class PlayitManager {
     this.tunnelLogCallback = null;
   }
 
+  /**
+   * Subscribes a fan-out consumer (e.g. the web dashboard) to the live relay
+   * log. Supports many independent subscribers alongside the terminal's own
+   * `/tunnel log` view. Returns an unsubscribe function.
+   */
+  public subscribeTunnelLog(cb: (data: string) => void): () => void {
+    this.tunnelLogSubscribers.add(cb);
+    return () => { this.tunnelLogSubscribers.delete(cb); };
+  }
+
+  /** Pushes a relay log chunk to every fan-out subscriber. */
+  private emitTunnelLog(chunk: string): void {
+    for (const cb of this.tunnelLogSubscribers) {
+      try { cb(chunk); } catch { /* a broken subscriber must not break the relay */ }
+    }
+  }
+
+  /**
+   * Returns the live tunnels currently registered on the claimed playit account
+   * (address, port, protocol). Empty when no secret is saved or the API fails —
+   * the dashboard treats that as "no tunnels yet" rather than an error.
+   */
+  public async listTunnels(): Promise<Array<{ id: string; name: string; proto: string; address: string; port: string; active: boolean }>> {
+    const secret = this.getSecret();
+    if (!secret) return [];
+    try {
+      const rd = await this.getRunData(secret);
+      const tunnels = (rd?.tunnels || []) as any[];
+      return tunnels.map((t) => {
+        const { address, port } = this.tunnelAddress(t);
+        return {
+          id: String(t.id ?? ''),
+          name: t.name || (t.proto === 'udp' ? 'Minecraft Bedrock' : 'Minecraft Java'),
+          proto: t.proto || 'tcp',
+          address,
+          port,
+          active: t.disabled == null,
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Links the playit.gg account (claims the agent if needed, self-healing a
+   * revoked key) and returns the tunnels currently on the account. This is the
+   * dashboard's "Connect playit.gg" action.
+   */
+  public async connect(callbacks: SetupCallbacks = {}): Promise<{ linked: boolean; tunnels: Awaited<ReturnType<PlayitManager['listTunnels']>> }> {
+    await this.ensureBinary();
+    await this.ensureValidSecret(callbacks);
+    const tunnels = await this.listTunnels();
+    return { linked: true, tunnels };
+  }
+
+  /**
+   * Brings an existing account tunnel online: starts the relay daemon for the
+   * tunnel's protocol so traffic flows and relay logs start streaming. Reuses
+   * setupAndStart, which reuses (not recreates) an existing tunnel.
+   */
+  public async goOnline(callbacks: SetupCallbacks = {}): Promise<TunnelStatus> {
+    const tunnels = await this.listTunnels();
+    if (tunnels.length === 0) {
+      throw new Error('No tunnel on your account yet — create a Java or Bedrock tunnel first.');
+    }
+    const type: 'java' | 'bedrock' = tunnels[0].proto === 'udp' ? 'bedrock' : 'java';
+    return this.setupAndStart(type, callbacks);
+  }
+
   /** Clears the saved secret so the agent can be re-claimed from scratch. */
   public async resetSecret(): Promise<void> {
     this.stopTunnel();
@@ -622,6 +720,7 @@ export class PlayitManager {
   private parsePlayitOutput(output: string): void {
     if (/agent registered|udp session details|tunnel running|tunnel active/i.test(output)) {
       this.tunnelStatus.status = 'Online';
+      this.notifyStatusChange();
     }
     const pingMatch = output.match(/ping:\s*(\d+\.?\d*ms)/i) || output.match(/latency:\s*(\d+\.?\d*ms)/i);
     if (pingMatch) this.tunnelStatus.latency = pingMatch[1];

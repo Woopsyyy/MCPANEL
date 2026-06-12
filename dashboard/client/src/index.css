@@ -1,0 +1,80 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import 'tailwindcss';
+
+/* Design tokens — terminal-inspired dark admin panel, grass-green accent to
+   match the MCPANEL CLI identity. Degrades to system fonts when offline. */
+@theme {
+  --color-surface-0: #09090b; /* zinc-950 — app background */
+  --color-surface-1: #18181b; /* zinc-900 — cards */
+  --color-surface-2: #27272a; /* zinc-800 — raised / inputs */
+  --color-border: #3f3f46;    /* zinc-700 */
+  --color-border-soft: #27272a;
+
+  --color-grass: #4ade80;     /* primary accent (green-400) */
+  --color-grass-deep: #22c55e;/* green-500 */
+  --color-grass-dim: #166534; /* green-800 */
+
+  --color-text: #fafafa;      /* zinc-50 */
+  --color-text-soft: #a1a1aa; /* zinc-400 */
+  --color-text-faint: #71717a;/* zinc-500 */
+
+  --color-ok: #4ade80;
+  --color-warn: #fbbf24;
+  --color-danger: #f87171;
+  --color-info: #38bdf8;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface-0);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Live metrics must not jitter as digits change width. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin, on-theme scrollbars for the console/log panes. */
+.scroll-thin::-webkit-scrollbar { width: 10px; height: 10px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: var(--color-surface-2); border-radius: 6px; }
+.scroll-thin::-webkit-scrollbar-track { background: transparent; }
+
+/* Entrance + feedback animations (all transform/opacity, 150–300ms). */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+.animate-in > * {
+  animation: fade-in-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* Stagger the first several children for a gentle cascade. */
+.animate-in > *:nth-child(1) { animation-delay: 0ms; }
+.animate-in > *:nth-child(2) { animation-delay: 40ms; }
+.animate-in > *:nth-child(3) { animation-delay: 80ms; }
+.animate-in > *:nth-child(4) { animation-delay: 120ms; }
+.animate-in > *:nth-child(5) { animation-delay: 160ms; }
+.animate-in > *:nth-child(6) { animation-delay: 200ms; }
+.animate-in > *:nth-child(n+7) { animation-delay: 240ms; }
+.toast-in { animation: toast-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, .animate-in > *, .toast-in {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
