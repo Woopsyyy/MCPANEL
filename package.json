@@ -10,7 +10,8 @@
     "dist",
     "assets",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "scripts/postinstall.js"
   ],
   "scripts": {
     "build:icons": "node scripts/build-icons.js",
