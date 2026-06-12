@@ -1,0 +1,8 @@
+PS C:\Users\woopsy\Project\Random\CLI> claude
+
+Resume this session with:
+claude --resume b1b6c0da-e2fd-4acd-be72-72f2728a06b8
+PS C:\Users\woopsy\Project\Random\CLI> 
+
+
+
