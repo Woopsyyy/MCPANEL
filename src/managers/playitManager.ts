@@ -403,6 +403,36 @@ export class PlayitManager {
     return secret;
   }
 
+  /**
+   * Returns an agent secret that playit currently accepts.
+   *
+   * A saved secret can be rejected with `InvalidAgentKey` when the agent has
+   * been removed from the playit account — the key is well-formed but no longer
+   * recognised. Without this, every tunnel command would fail forever on the
+   * stale secret. So we probe the secret once and, if it's been revoked, clear
+   * it and re-run the one-time claim flow (the same path a brand-new user takes),
+   * letting `tunnel` self-heal.
+   */
+  private async ensureValidSecret(callbacks: SetupCallbacks = {}): Promise<string> {
+    let secret = await this.ensureSecret(callbacks);
+    try {
+      await this.getRunData(secret); // cheap authenticated probe
+      return secret;
+    } catch (err: any) {
+      if (!this.isInvalidAgentKey(err)) throw err;
+      logger.warn('Saved playit agent secret was rejected (InvalidAgentKey); clearing it and re-claiming.');
+      callbacks.onStatus?.('Your saved playit agent is no longer linked to your account — re-linking (one-time browser approval)...');
+      this.configManager.updatePlayitTunnel({ secret: undefined });
+      secret = await this.ensureSecret(callbacks);
+      return secret;
+    }
+  }
+
+  /** True when a playit API error is a rejected/invalid agent key. */
+  private isInvalidAgentKey(err: any): boolean {
+    return /InvalidAgentKey/i.test(err?.message || '');
+  }
+
   // ---------------------------------------------------------------------------
   // Full automated setup
   // ---------------------------------------------------------------------------
@@ -418,10 +448,14 @@ export class PlayitManager {
    */
   public async setupAndStart(type: 'java' | 'bedrock', callbacks: SetupCallbacks = {}): Promise<TunnelStatus> {
     await this.ensureBinary();
-    const secret = await this.ensureSecret(callbacks);
 
     this.tunnelStatus.status = 'Connecting';
     this.tunnelStatus.type = type;
+
+    // Resolve a secret playit actually accepts. A saved secret can be revoked
+    // (agent removed from the account), in which case this re-claims instead of
+    // failing every tunnel command forever.
+    const secret = await this.ensureValidSecret(callbacks);
 
     // Start the relay first so the agent connects and registers its version.
     callbacks.onStatus?.('Starting tunnel agent...');
