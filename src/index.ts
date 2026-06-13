@@ -27,7 +27,15 @@ const processManager = new ProcessManager();
 const serverManager = new ServerManager(configManager);
 const backupManager = new BackupManager(configManager);
 const playitManager = new PlayitManager(configManager);
-const trayManager = new TrayManager(configManager, processManager, playitManager);
+const trayManager = new TrayManager(
+  configManager,
+  processManager,
+  playitManager,
+  // Tray "Open Dashboard" runs the exact same flow as the `dashboard` command.
+  // Wrapped in a thunk so handleDashboardCommand (hoisted, defined below) is
+  // only referenced at click time.
+  () => handleDashboardCommand('')
+);
 
 const router = new CommandRouter(
   configManager,
