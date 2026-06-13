@@ -115,14 +115,19 @@ export class TrayManager {
   private itemHide = { title: 'Hide Console', tooltip: 'Hide terminal window from taskbar', enabled: true };
   private itemServerStatus = { title: 'Server: Checking...', tooltip: 'Current Minecraft server status', enabled: false };
   private itemServerToggle = { title: 'Start Server', tooltip: 'Toggle server state', enabled: true };
+  private itemServerRestart = { title: 'Restart Server', tooltip: 'Stop and start the server', enabled: false };
   private itemTunnelStatus = { title: 'Tunnel: Checking...', tooltip: 'Current Playit tunnel status', enabled: false };
   private itemTunnelToggle = { title: 'Start Tunnel', tooltip: 'Toggle tunnel state', enabled: true };
+  private itemOpenDashboard = { title: 'Open Dashboard', tooltip: 'Open the web dashboard in your browser', enabled: true };
   private itemExit = { title: 'Exit', tooltip: 'Stop server/tunnel and exit', enabled: true };
 
   constructor(
     private configManager: ConfigManager,
     private processManager: ProcessManager,
-    private playitManager: PlayitManager
+    private playitManager: PlayitManager,
+    // Runs the same launch flow as the `dashboard` command (account gate,
+    // start, open browser). Injected so the tray doesn't duplicate that logic.
+    private onOpenDashboard: () => Promise<void>
   ) {}
 
   /**
@@ -158,9 +163,12 @@ export class TrayManager {
             SysTray.separator,
             this.itemServerStatus,
             this.itemServerToggle,
+            this.itemServerRestart,
             SysTray.separator,
             this.itemTunnelStatus,
             this.itemTunnelToggle,
+            SysTray.separator,
+            this.itemOpenDashboard,
             SysTray.separator,
             this.itemExit
           ]
@@ -227,6 +235,8 @@ export class TrayManager {
     this.itemServerStatus.title = `Server: ${running ? 'Running' : 'Offline'}`;
     this.itemServerToggle.title = running ? 'Stop Server' : 'Start Server';
     this.itemServerToggle.enabled = !!server;
+    // Restart only makes sense while the server is running.
+    this.itemServerRestart.enabled = running;
 
     // Update tunnel status & toggle label
     this.itemTunnelStatus.title = `Tunnel: ${tunnel.status}`;
@@ -235,6 +245,7 @@ export class TrayManager {
     // Push updates to the native helper
     tray.sendAction({ type: 'update-item', item: this.itemServerStatus });
     tray.sendAction({ type: 'update-item', item: this.itemServerToggle });
+    tray.sendAction({ type: 'update-item', item: this.itemServerRestart });
     tray.sendAction({ type: 'update-item', item: this.itemTunnelStatus });
     tray.sendAction({ type: 'update-item', item: this.itemTunnelToggle });
   }
@@ -278,7 +289,55 @@ export class TrayManager {
   }
 
   /**
-   * Handles individual tray menu click actions
+   * Starts the managed server, resolving the jar the same way the CLI does.
+   * Shared by the Start Server and Restart Server tray actions.
+   */
+  private async startServerFromTray(): Promise<void> {
+    const server = this.configManager.getServer();
+    if (!server) return;
+
+    const jarPath = path.join(server.path, 'server.jar');
+    let resolvedJar = jarPath;
+    if (!fs.existsSync(jarPath)) {
+      const jarFiles = fs.readdirSync(server.path).filter(f => f.endsWith('.jar'));
+      if (jarFiles.length > 0) {
+        resolvedJar = path.join(server.path, jarFiles[0]);
+      }
+    }
+
+    try {
+      logger.info(`Starting Minecraft server "${server.name}" from tray menu...`);
+      await this.processManager.startServer(
+        server.name,
+        server.path,
+        resolvedJar,
+        server.ram,
+        this.configManager.getConfig().defaultJavaPath
+      );
+    } catch (err: any) {
+      logger.error('Failed to start server from tray', err);
+    }
+  }
+
+  /**
+   * Gracefully stops the managed server. Resolves only once the process has
+   * fully exited (ProcessManager.stopServer awaits the 'exit' event), so a
+   * restart can start a fresh process without a port clash.
+   * Shared by the Stop Server and Restart Server tray actions.
+   */
+  private async stopServerFromTray(): Promise<void> {
+    const server = this.configManager.getServer();
+    if (!server) return;
+    logger.info(`Stopping Minecraft server "${server.name}" from tray menu gracefully...`);
+    await this.processManager.stopServer(server.name);
+  }
+
+  /**
+   * Handles individual tray menu click actions.
+   *
+   * NOTE: Exit is the ONLY action that kills the tray (tray.kill below). Every
+   * other branch returns normally and never calls process.exit, so the tray
+   * stays alive until the user explicitly chooses Exit.
    */
   private async handleTrayClick(event: any): Promise<void> {
     const title = event.item.title;
@@ -288,37 +347,25 @@ export class TrayManager {
     } else if (title === 'Hide Console') {
       this.hideConsole();
     } else if (title === 'Start Server') {
-      const server = this.configManager.getServer();
-      if (!server) return;
-
-      const jarPath = path.join(server.path, 'server.jar');
-      let resolvedJar = jarPath;
-      if (!fs.existsSync(jarPath)) {
-        const jarFiles = fs.readdirSync(server.path).filter(f => f.endsWith('.jar'));
-        if (jarFiles.length > 0) {
-          resolvedJar = path.join(server.path, jarFiles[0]);
-        }
-      }
-
-      try {
-        logger.info(`Starting Minecraft server "${server.name}" from tray menu...`);
-        await this.processManager.startServer(
-          server.name,
-          server.path,
-          resolvedJar,
-          server.ram,
-          this.configManager.getConfig().defaultJavaPath
-        );
-      } catch (err: any) {
-        logger.error('Failed to start server from tray', err);
-      }
+      await this.startServerFromTray();
       this.updateMenu();
     } else if (title === 'Stop Server') {
+      await this.stopServerFromTray();
+      this.updateMenu();
+    } else if (title === 'Restart Server') {
       const server = this.configManager.getServer();
       if (!server) return;
-      logger.info(`Stopping Minecraft server "${server.name}" from tray menu gracefully...`);
-      await this.processManager.stopServer(server.name);
+      logger.info(`Restarting Minecraft server "${server.name}" from tray menu...`);
+      await this.stopServerFromTray();
+      await this.startServerFromTray();
       this.updateMenu();
+    } else if (title === 'Open Dashboard') {
+      logger.info('Opening dashboard from tray menu...');
+      try {
+        await this.onOpenDashboard();
+      } catch (err: any) {
+        logger.error('Failed to open dashboard from tray', err);
+      }
     } else if (title === 'Start Tunnel') {
       logger.info('Starting playit tunnel agent from tray menu...');
       try {
